@@ -1,0 +1,15 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      MODEL_ROOT: /models
+      SPATIALSHIFT_DEVICE: ${SPATIALSHIFT_DEVICE:-auto}
+      SPATIALSHIFT_LOG_LEVEL: ${SPATIALSHIFT_LOG_LEVEL:-INFO}
+      SPATIALSHIFT_ENV: ${SPATIALSHIFT_ENV:-development}
+    volumes:
+      # trained artifacts live outside the image and outside Git
+      - ${MODEL_ROOT:-./models}:/models:ro
+      - ./data:/data:ro

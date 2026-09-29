@@ -1,0 +1,62 @@
+# API (Phase 1)
+
+Base path: `/api`. OpenAPI UI at `/docs`.
+
+Phase 1 exposes introspection only — inference endpoints are added in Phase 2,
+once artifacts are mounted. Nothing here fabricates a model output.
+
+## `GET /api/health`
+
+Process liveness plus environment, timestamp, resolved device and the
+configured model root (and whether it exists). Does not load any model; use
+`/api/models/health` for readiness.
+
+## `GET /api/version`
+
+Application version, Python version and the versions of the libraries that
+matter for reproducing an inference run (torch, torchvision, scikit-learn,
+numpy, shapely, rasterio, pyproj).
+
+## `GET /api/models`
+
+The manifest: for each model its key, title, architecture, task, runtime,
+resolved directory under `MODEL_ROOT`, notes, and every expected artifact with
+`required`, `present`, `path` and `size_bytes`. No loading is attempted.
+
+## `GET /api/models/health`
+
+Query parameters:
+
+- `probe` (default `true`) — attempt a real load of each model
+- `include_hash` (default `false`) — include the sha256 of present artifacts
+
+Returns per model: `status`, `loaded`, `device`, `load_time_ms`,
+`model_version`, `error` (the real exception text when loading failed),
+`missing_artifacts` and the artifact reports. With `probe=false` a model with
+all files present reports `ready_for_test` rather than `ready`.
+
+## `GET /api/models/{model_key}/health`
+
+The same payload for one model; `404` for an unknown key.
+
+## `GET /api/models/pipeline`
+
+The declared stages (parcel correspondence → building extraction → change
+detection → entity resolution → anomaly review) with, for each, whether it can
+run and — when it cannot — the concrete reason (missing artifact, load error,
+unsupported runtime). Stages that cannot run are reported as skipped, never
+simulated.
+
+## Errors
+
+| exception | status | `error` |
+| --- | --- | --- |
+| `InvalidInputError` | 422 | `invalid_input` |
+| `ModelArtifactMissingError` | 503 | `missing_artifact` |
+| `ModelCompatibilityError` | 503 | `incompatible_artifact` |
+| `ModelLoadError` | 503 | `load_error` |
+| other `SpatialShiftError` (geometry, CRS, inference) | 400 | `domain_error` |
+| unknown model key | 404 | FastAPI `detail` |
+
+Each error response carries `error`, `detail` and, for model errors, the model
+key.

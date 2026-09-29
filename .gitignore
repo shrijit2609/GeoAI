@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local
+
+# Model artifacts (installed into MODEL_ROOT at deployment time, never committed)
+models/**/*.pt
+models/**/*.pth
+models/**/*.pkl
+models/**/*.joblib
+models/**/*.onnx
+models/**/*.h5
+
+# Data
+data/raw/
+data/interim/
+data/processed/
+*.tif
+*.tiff
+*.img
+*.jp2
+*.shp
+*.shx
+*.dbf
+*.sbn
+*.sbx
+*.gpkg
+*.geojson.gz
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
