@@ -1,9 +1,10 @@
-# API (Phase 1)
+# API
 
 Base path: `/api`. OpenAPI UI at `/docs`.
 
-Phase 1 exposes introspection only — inference endpoints are added in Phase 2,
-once artifacts are mounted. Nothing here fabricates a model output.
+The backend exposes model introspection and the Phase 2 canonical ingestion API.
+The ingestion endpoints validate and normalize geospatial sources without
+fabricating missing values or model outputs.
 
 ## `GET /api/health`
 
@@ -16,6 +17,20 @@ configured model root (and whether it exists). Does not load any model; use
 Application version, Python version and the versions of the libraries that
 matter for reproducing an inference run (torch, torchvision, scikit-learn,
 numpy, shapely, rasterio, pyproj).
+
+## `POST /api/upload`
+
+Upload and ingest a vector source. The endpoint accepts either a JSON payload or
+an uploaded file. Supported formats are GeoJSON, GeoPackage, Shapefile and
+Parquet.
+
+Response fields include:
+
+- `source_name`, `source_type`, `source_id`
+- `total_records`, `valid_records`, `invalid_records`
+- `detected_crs`, `geometry_types`, `detected_fields`
+- `warnings`, `errors`, `provenance`
+- `records` — canonicalized parcel/entity records
 
 ## `GET /api/models`
 

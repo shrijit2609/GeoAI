@@ -3,21 +3,22 @@
 Automated integration and intelligent harmonization of multi-source geospatial
 data for urban land record management (SIH 2026, problem statement 26013).
 
-This repository currently contains **Phase 1: the backend and ML foundation**.
-There is no frontend yet, and there are no simulated model outputs anywhere in
-the codebase: every model endpoint either runs a real trained artifact or
-reports that the artifact is missing.
+This repository currently contains the backend and ML foundation, plus the
+Phase 2 canonical geospatial ingestion pipeline. There is no frontend yet, and
+there are no simulated model outputs anywhere in the codebase: every model
+endpoint either runs a real trained artifact or reports that the artifact is
+missing.
 
 ## Layout
 
 ```
 backend/
   app/
-    api/routes/     FastAPI routers (health, models)
+    api/routes/     FastAPI routers (health, models, upload ingestion)
     core/           settings, logging, error types
     ml/             model manifest, adapters for models 1-5, registry, orchestrator
     schemas/        parcel, provenance, conflict, topology contracts
-    services/       geospatial, topology, conflict, confidence engines
+    services/       geospatial, ingestion, topology, conflict, confidence engines
   tests/            pytest suite (no network, no trained artifacts required)
 models/             trained artifacts, loaded at runtime, never committed
 data/               sample inputs and JSON schemas
@@ -45,6 +46,7 @@ cd backend
 - `GET /api/models` – the artifact manifest and per-model artifact presence
 - `GET /api/models/health` – real artifact inspection, and by default a real load attempt
 - `GET /api/models/{model_key}/health` – the same for a single model
+- `POST /api/upload` – ingest GeoJSON, GeoPackage, Shapefile or Parquet sources into the canonical model
 - `GET /api/models/pipeline` – the declared pipeline stages and whether each can run
 - `GET /api/version` – build/runtime metadata
 - `GET /docs` – OpenAPI UI
@@ -85,6 +87,17 @@ See <docs/models.md> for the per-model contract and the known limits (for
 example: the parcel matcher needs the trained `nn.Module`, not a bare state
 dict; Model 4 does not use owner names; Model 5 output is a review signal, not
 a fraud determination).
+
+## Canonical geospatial model and ingestion
+
+The canonical parcel schema supports source metadata, CRS, geometry, parcel
+identity fields, source timestamps, quality flags, and provenance. It keeps
+missing values explicit and never fabricates source values.
+
+Supported vector sources include GeoJSON, GeoPackage, Shapefile and Parquet.
+The ingestion layer validates geometry, detects CRS when possible, normalizes
+attributes, keeps raw properties, records invalid rows without silently
+discarding them, and returns statistics and provenance.
 
 ## Documentation
 

@@ -65,10 +65,15 @@ class SourceRecord(BaseModel):
     source_record_id: str
     source_type: SourceType = SourceType.OTHER
     source_parcel_id: str | None = None
+    source_id: str | None = Field(
+        default=None,
+        description="Source-specific record identifier carried through canonicalization.",
+    )
     ulpin: str | None = None
     geometry: dict[str, Any] | None = Field(
         default=None, description="GeoJSON geometry in crs"
     )
+    geometry_type: str | None = None
     crs: str | None = None
     attributes: LandRecordAttributes = Field(default_factory=LandRecordAttributes)
     observed_at: _dt.datetime | None = None
@@ -89,13 +94,40 @@ class CanonicalParcel(BaseModel):
     """A canonical parcel linking one or more source records."""
 
     parcel_id: str = Field(description="Internal canonical identifier")
+    internal_id: str | None = Field(
+        default=None,
+        description="Canonical internal identifier when distinct from the public parcel_id.",
+    )
+    source_id: str | None = None
+    source_name: str | None = None
+    geometry: dict[str, Any] | None = None
+    geometry_type: str | None = None
+    crs: str | None = None
+    village: str | None = None
+    village_code: str | None = None
+    district: str | None = None
+    district_code: str | None = None
+    tehsil: str | None = None
+    tehsil_code: str | None = None
+    block: str | None = None
+    pargana: str | None = None
+    khasra: str | None = None
+    parcel_type: str | None = None
+    area: float | None = None
+    development_status: str | None = None
+    remarks: str | None = None
+    source_timestamp: _dt.datetime | None = None
+    ingestion_timestamp: _dt.datetime = Field(
+        default_factory=lambda: _dt.datetime.now(_dt.timezone.utc)
+    )
+    confidence: float | None = None
+    quality_flags: list[str] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     ulpin: str | None = Field(
         default=None,
         description="Authoritative ULPIN, only ever copied from a source record",
     )
     ulpin_source: str | None = None
-    geometry: dict[str, Any] | None = None
-    crs: str | None = None
     attributes: LandRecordAttributes = Field(default_factory=LandRecordAttributes)
     source_records: list[SourceRecord] = Field(default_factory=list)
     created_at: _dt.datetime = Field(
@@ -107,10 +139,57 @@ class CanonicalParcel(BaseModel):
         """Attach a source record, adopting its ULPIN when we have none."""
 
         self.source_records.append(record)
+        if self.source_id is None and record.source_id:
+            self.source_id = record.source_id
+        if self.source_name is None and record.source_system:
+            self.source_name = record.source_system
         if self.ulpin is None and record.ulpin:
             self.ulpin = record.ulpin
             self.ulpin_source = f"{record.source_system}:{record.source_record_id}"
         self.updated_at = _dt.datetime.now(_dt.timezone.utc)
+
+    @classmethod
+    def from_source_record(
+        cls,
+        *,
+        source_name: str,
+        source_id: str,
+        geometry: dict[str, Any] | None,
+        geometry_type: str | None,
+        crs: str | None,
+        properties: dict[str, Any],
+        provenance: dict[str, Any] | None = None,
+    ) -> "CanonicalParcel":
+        payload = properties or {}
+        parcel = cls(
+            parcel_id=source_id,
+            internal_id=source_id,
+            source_id=source_id,
+            source_name=source_name,
+            geometry=geometry,
+            geometry_type=geometry_type,
+            crs=crs,
+            village=payload.get("village"),
+            village_code=payload.get("village_code"),
+            district=payload.get("district"),
+            district_code=payload.get("district_code"),
+            tehsil=payload.get("tehsil"),
+            tehsil_code=payload.get("tehsil_code"),
+            block=payload.get("block"),
+            pargana=payload.get("pargana"),
+            khasra=payload.get("khasra"),
+            parcel_type=payload.get("parcel_type") or payload.get("land_use"),
+            area=payload.get("area"),
+            development_status=payload.get("status") or payload.get("development_status"),
+            remarks=payload.get("remarks"),
+            confidence=payload.get("confidence"),
+            quality_flags=list(payload.get("quality_flags", []) or []),
+            provenance=provenance or {},
+            source_timestamp=payload.get("source_timestamp"),
+            ingestion_timestamp=_dt.datetime.now(_dt.timezone.utc),
+        )
+        parcel.attributes = LandRecordAttributes(**payload)
+        return parcel
 
     @property
     def source_keys(self) -> list[str]:
