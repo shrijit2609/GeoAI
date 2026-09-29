@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
+from app.core.errors import InvalidInputError, ModelArtifactMissingError
 from app.ml.model_registry import ModelRegistry, UnknownModelError, get_registry
 from app.ml.orchestrator import Orchestrator
 
@@ -84,3 +85,28 @@ def model_health(
     except UnknownModelError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return health.model_dump(mode="json")
+
+
+@router.post("/{model_key}/infer")
+@router.post("/{model_key}/predict")
+@router.post("/{model_key}/inference")
+def model_inference(
+    model_key: str,
+    payload: dict[str, Any] | None = Body(default=None),
+    registry: ModelRegistry = Depends(registry_dependency),
+) -> dict[str, Any]:
+    try:
+        adapter = registry.get(model_key)
+    except UnknownModelError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    missing = adapter.missing_required_artifacts()
+    if missing:
+        raise ModelArtifactMissingError(adapter.spec.key, missing)
+
+    try:
+        result = adapter.infer(payload or {})
+    except InvalidInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return result.model_dump(mode="json")

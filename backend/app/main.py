@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.api.routes import api_router
 from app.core.config import get_settings
 from app.core.errors import (
+    InferenceError,
     InvalidInputError,
     ModelArtifactMissingError,
     ModelCompatibilityError,
@@ -104,6 +105,13 @@ def create_app() -> FastAPI:
     async def _invalid_input(request: Request, exc: InvalidInputError):
         return JSONResponse(
             status_code=422, content={"error": "invalid_input", "detail": str(exc)}
+        )
+
+    @app.exception_handler(InferenceError)
+    async def _inference_error(request: Request, exc: InferenceError):
+        return JSONResponse(
+            status_code=500,
+            content={"error": "inference_error", "model": getattr(exc, "model_key", None), "detail": str(exc)},
         )
 
     @app.exception_handler(SpatialShiftError)

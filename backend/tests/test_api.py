@@ -49,3 +49,27 @@ def test_pipeline_marks_stages_unavailable(api_client):
     assert len(stages) == 5
     assert all(stage["available"] is False for stage in stages)
     assert all(stage["blocker"] for stage in stages)
+
+
+def test_inference_endpoint_reports_missing_artifacts_safely(api_client):
+    response = api_client.post(
+        "/api/models/entity_resolver/infer",
+        json={"record_a": {"village": "A"}, "record_b": {"village": "B"}},
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["error"] == "missing_artifact"
+    assert payload["model"] == "entity_resolver"
+
+
+def test_predict_alias_uses_the_same_missing_artifact_contract(api_client):
+    response = api_client.post(
+        "/api/models/parcel_matcher/predict",
+        json={"parcel_a": {"image": "a"}, "parcel_b": {"image": "b"}},
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["error"] == "missing_artifact"
+    assert payload["model"] == "parcel_matcher"

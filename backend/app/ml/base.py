@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from app.core.errors import (
+    InferenceError,
+    InvalidInputError,
     ModelArtifactMissingError,
     ModelCompatibilityError,
     ModelLoadError,
@@ -198,6 +200,58 @@ class BaseModelAdapter:
             runtime=self.spec.runtime.value,
             library_versions=library_versions(),
         )
+
+    def infer(self, *args: Any, **kwargs: Any) -> ModelResult:
+        """Dispatch a model-specific request to the adapter's inference method."""
+
+        payload: dict[str, Any] = {}
+        if len(args) == 1 and isinstance(args[0], dict):
+            payload = dict(args[0])
+        elif args:
+            payload = {"_args": list(args)}
+        payload.update(kwargs)
+
+        key = self.spec.key
+        if key == "parcel_matcher":
+            parcel_a = payload.get("parcel_a", payload.get("parcelA", payload.get("a")))
+            parcel_b = payload.get("parcel_b", payload.get("parcelB", payload.get("b")))
+            if parcel_a is None or parcel_b is None:
+                raise InvalidInputError(
+                    "parcel_matcher inference requires parcel_a and parcel_b"
+                )
+            return self.predict(parcel_a, parcel_b)
+
+        if key == "building_extractor":
+            image = payload.get("image", payload.get("input", payload.get("data")))
+            if image is None:
+                raise InvalidInputError("building_extractor inference requires an image")
+            return self.predict(image)
+
+        if key == "change_detector":
+            before = payload.get("before_image", payload.get("before"))
+            after = payload.get("after_image", payload.get("after"))
+            if before is None or after is None:
+                raise InvalidInputError(
+                    "change_detector inference requires before_image and after_image"
+                )
+            return self.predict(before, after)
+
+        if key == "entity_resolver":
+            record_a = payload.get("record_a", payload.get("recordA", payload.get("a")))
+            record_b = payload.get("record_b", payload.get("recordB", payload.get("b")))
+            if record_a is None or record_b is None:
+                raise InvalidInputError(
+                    "entity_resolver inference requires record_a and record_b"
+                )
+            return self.resolve(record_a, record_b)
+
+        if key == "anomaly_detector":
+            record = payload.get("record", payload.get("data", payload.get("payload")))
+            if record is None:
+                raise InvalidInputError("anomaly_detector inference requires a record")
+            return self.predict(record)
+
+        raise InferenceError(f"model '{key}' does not define a generic inference contract")
 
     def build_result(
         self,

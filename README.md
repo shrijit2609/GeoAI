@@ -99,6 +99,37 @@ The ingestion layer validates geometry, detects CRS when possible, normalizes
 attributes, keeps raw properties, records invalid rows without silently
 discarding them, and returns statistics and provenance.
 
+## Production model runtime
+
+The backend exposes the five trained SpatialShiftAI models through the registry
+and model adapters. Each model is configured via `MODEL_ROOT` and resolves its
+artifact directory under that root at runtime, so the trained checkpoints and
+joblib artifacts remain external to Git and can be mounted separately in
+deployment.
+
+Model keys and expected directories:
+
+- `parcel_matcher` → `MODEL_ROOT/model1_parcel_matcher`
+- `building_extractor` → `MODEL_ROOT/model2_building_extractor`
+- `change_detector` → `MODEL_ROOT/model3_change_detection`
+- `entity_resolver` → `MODEL_ROOT/model4_entity_resolution`
+- `anomaly_detector` → `MODEL_ROOT/model5_anomaly_detection`
+
+The runtime contract is explicit and safe:
+
+- missing artifacts remain `missing_artifact`
+- a file path alone is not treated as readiness
+- a model can fail to load without crashing the rest of the API
+- inference never returns fabricated predictions when a model is unavailable
+
+Inference endpoints are exposed under the model registry:
+
+- `POST /api/models/{model_key}/infer`
+- `POST /api/models/{model_key}/predict`
+
+The same route family is used for the parcel matcher, building extractor,
+change detector, entity resolver and anomaly detector.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md)

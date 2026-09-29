@@ -90,3 +90,19 @@ def test_probe_false_reports_ready_for_test(
 
     health = registry.health("anomaly_detector", probe=False)
     assert health.status is ModelStatus.READY_FOR_TEST
+
+
+def test_adapter_infer_dispatches_to_the_model_method(registry: ModelRegistry, monkeypatch):
+    adapter = registry.get("anomaly_detector")
+
+    seen = {}
+
+    def fake_predict(record):
+        seen["record"] = record
+        return "ok"
+
+    monkeypatch.setattr(adapter, "predict", fake_predict)
+    result = adapter.infer(record={"village": "A"})
+
+    assert result == "ok"
+    assert seen["record"] == {"village": "A"}

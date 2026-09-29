@@ -26,6 +26,11 @@ PARCEL_MATCHER = ModelSpec(
         ArtifactSpec("parcel_match_threshold.json", "threshold", required=False),
         ArtifactSpec("parcel_match_preprocessing.json", "preprocessing", required=False),
     ),
+    readiness_requirements=(
+        "checkpoint file exists and loads on the configured runtime",
+        "required preprocessing information is available either in the checkpoint or sidecar JSON",
+        "module architecture must be reconstructable without guessing",
+    ),
     notes=(
         "Benchmark performance was measured on a controlled dataset and must not "
         "be presented as real-world accuracy.",
@@ -48,6 +53,11 @@ BUILDING_EXTRACTOR = ModelSpec(
         ),
         ArtifactSpec("building_preprocessing.json", "preprocessing", required=False),
     ),
+    readiness_requirements=(
+        "checkpoint file exists and loads on the configured runtime",
+        "preprocessing metadata is present or embedded in the checkpoint",
+        "output head shape must be compatible with the model architecture",
+    ),
     notes=(
         "Polygons are returned in pixel coordinates unless the source raster "
         "carries a CRS and geotransform.",
@@ -68,6 +78,11 @@ CHANGE_DETECTOR = ModelSpec(
         ),
         ArtifactSpec("change_preprocessing.json", "preprocessing", required=False),
     ),
+    readiness_requirements=(
+        "checkpoint file exists and loads on the configured runtime",
+        "paired imagery preprocessing matches the checkpoint contract",
+        "decoder head dimensions match the saved weights",
+    ),
     notes=("Both epochs must share the same CRS, geotransform and raster size.",),
 )
 
@@ -84,6 +99,11 @@ ENTITY_RESOLVER = ModelSpec(
         ArtifactSpec("model4_feature_schema.json", "feature_schema", required=True),
         ArtifactSpec("model4_isotonic_calibrator.joblib", "calibrator", required=False),
         ArtifactSpec("model4_threshold.json", "threshold", required=False),
+    ),
+    readiness_requirements=(
+        "classifier, scaler and feature schema files are all present",
+        "feature schema can be parsed and matches the expected record layout",
+        "optional calibrator and threshold are treated as metadata, not as replacements for required files",
     ),
     notes=(
         "The training data contains no owner names; owner-name matching is not "
@@ -105,6 +125,11 @@ ANOMALY_DETECTOR = ModelSpec(
         ArtifactSpec("model5_feature_scaler.joblib", "scaler", required=False),
         ArtifactSpec("model5_isotonic_calibrator.joblib", "calibrator", required=False),
         ArtifactSpec("model5_threshold.json", "threshold", required=False),
+    ),
+    readiness_requirements=(
+        "classifier and feature schema are present and parseable",
+        "feature transformation metadata is valid if a scaler or calibrator is supplied",
+        "result is a review signal only; the model is never treated as a fraud decision engine",
     ),
     notes=(
         "Scope is attribute/identity/statistical anomalies in land records. The "

@@ -59,6 +59,7 @@ class ModelSpec:
     task: str
     artifacts: tuple[ArtifactSpec, ...]
     notes: tuple[str, ...] = field(default_factory=tuple)
+    readiness_requirements: tuple[str, ...] = field(default_factory=tuple)
 
     def model_dir(self, model_root: Path) -> Path:
         return model_root / self.directory

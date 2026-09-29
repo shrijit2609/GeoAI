@@ -6,6 +6,32 @@ The backend exposes model introspection and the Phase 2 canonical ingestion API.
 The ingestion endpoints validate and normalize geospatial sources without
 fabricating missing values or model outputs.
 
+## Production model runtime
+
+The backend keeps all trained model artifacts external to Git by resolving them
+under `MODEL_ROOT`. The runtime contract is explicit and safe: missing artifacts
+return a structured missing-artifact response, a file path alone does not mark a
+model as ready, and the rest of the API stays operational when a model is
+unavailable.
+
+### Inference endpoints
+
+- `POST /api/models/{model_key}/infer`
+- `POST /api/models/{model_key}/predict`
+
+The supported model keys are:
+
+- `parcel_matcher`
+- `building_extractor`
+- `change_detector`
+- `entity_resolver`
+- `anomaly_detector`
+
+Each route validates the supplied request payload, executes the model adapter,
+and returns the normalized model result with `model`, `model_version`,
+`status`, `confidence`, `decision`, `evidence`, `warnings`, `provenance`, and
+`inference_ms` when the model is available.
+
 ## `GET /api/health`
 
 Process liveness plus environment, timestamp, resolved device and the
