@@ -38,9 +38,13 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     api_prefix: str = "/api"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     device: DeviceName = "auto"
     model_root: Path = Field(default_factory=lambda: REPO_ROOT / "models")
+    frontend_root: Path = Field(default_factory=lambda: REPO_ROOT / "frontend")
+    upload_max_bytes: int = Field(default=64 * 1024 * 1024, gt=0)
+    upload_max_zip_expanded_bytes: int = Field(default=128 * 1024 * 1024, gt=0)
 
     # Preloading large checkpoints at startup is deliberately disabled.
     eager_model_load: bool = False
@@ -63,6 +67,10 @@ class Settings(BaseSettings):
     def resolved_model_root(self) -> Path:
         return self.model_root.expanduser()
 
+    @property
+    def resolved_frontend_root(self) -> Path:
+        return self.frontend_root.expanduser()
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -70,6 +78,12 @@ def get_settings() -> Settings:
     model_root_env = os.environ.get("MODEL_ROOT")
     if model_root_env:
         overrides["model_root"] = model_root_env
+    cors_env = os.environ.get("SPATIALSHIFT_CORS_ORIGINS")
+    if cors_env:
+        overrides["cors_origins"] = cors_env
+    frontend_root_env = os.environ.get("SPATIALSHIFT_FRONTEND_ROOT")
+    if frontend_root_env:
+        overrides["frontend_root"] = frontend_root_env
     return Settings(**overrides)
 
 

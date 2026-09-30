@@ -58,6 +58,41 @@ Response fields include:
 - `warnings`, `errors`, `provenance`
 - `records` — canonicalized parcel/entity records
 
+## Data, Layers and Exports
+
+- `POST /api/data/upload` — bounded upload for GeoJSON, GeoPackage, Shapefile
+	ZIP, Parquet, CSV coordinates and KML when the installed GDAL/Fiona driver
+	supports it. The request limit is 64 MiB; expanded ZIP content is limited to
+	128 MiB.
+- `GET /api/data/sources` — source summaries registered in this backend process.
+- `GET /api/data/{source_id}` — source records for the current process.
+- `GET /api/data/{source_id}/export?format=geojson|csv` — export one source.
+- `GET /api/layers` and `GET /api/layers/{layer_id}` — layer summaries and
+	GeoJSON transformed to EPSG:4326 only when the source CRS is known.
+
+The source catalog is process-local and is cleared when the backend restarts.
+CRS-unknown geometries are withheld from geographic map output rather than
+silently interpreted as longitude/latitude.
+
+## Harmonization
+
+- `POST /api/harmonize` with `{ "source_ids": ["..."] }` links records only
+	when normalized ULPINs or complete district/village/tehsil/khasra keys match
+	exactly. Conflicting attributes remain unresolved and confidence is not
+	invented.
+- `GET /api/harmonize/{job_id}` retrieves a result held in process memory.
+
+This deterministic workflow does not call model inference or apply an
+authoritative source-precedence rule.
+
+## ULPIN
+
+- `GET /api/ulpin/{ulpin}` searches uploaded sources. If
+	`SPATIALSHIFT_ULPIN_ENDPOINT` is configured, a local miss can be forwarded to
+	that endpoint (replace `{ulpin}` in the URL or append the identifier). With
+	no configured endpoint, the response states that no external service was
+	queried.
+
 ## `GET /api/models`
 
 The manifest: for each model its key, title, architecture, task, runtime,

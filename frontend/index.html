@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#133f36">
+  <title>SpatialShiftAI | Land Records Intelligence</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script defer src="/ui/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="SpatialShiftAI home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span><strong>SpatialShift</strong><small>LAND RECORDS INTELLIGENCE</small></span>
+      </a>
+      <div class="workspace-label">WORKSPACE</div>
+      <nav class="nav-list" aria-label="Workspace views">
+        <a class="nav-item active" href="#overview"><span class="nav-glyph">01</span>Overview</a>
+        <a class="nav-item" href="#sources"><span class="nav-glyph">02</span>Sources & map</a>
+        <a class="nav-item" href="#harmonize"><span class="nav-glyph">03</span>Harmonization</a>
+        <a class="nav-item" href="#ulpin"><span class="nav-glyph">04</span>ULPIN lookup</a>
+        <a class="nav-item" href="#models"><span class="nav-glyph">05</span>Model readiness</a>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-foot"><span class="live-dot"></span><span id="side-health">Connecting to API</span></div>
+      <div class="sidebar-foot tiny">SIH 2026 · PROBLEM 26013</div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div><div class="eyebrow">GEOSPATIAL DATA OPERATIONS</div><h1>Land Record Harmonization</h1></div>
+        <div class="api-config"><label for="api-url">API</label><input id="api-url" type="url" value="http://localhost:8000" aria-label="Backend API URL"><button id="connect-btn" class="button button-dark">Connect</button></div>
+      </header>
+
+      <section id="overview" class="status-strip" aria-label="System summary">
+        <div class="status-cell"><span class="metric-label">REGISTERED SOURCES</span><strong id="metric-sources">0</strong></div>
+        <div class="status-cell"><span class="metric-label">VALID FEATURES</span><strong id="metric-features">0</strong></div>
+        <div class="status-cell"><span class="metric-label">MODEL READINESS</span><strong id="metric-models">Loading</strong></div>
+        <div class="status-cell status-cell-note"><span class="live-dot"></span><span id="health-text">Checking backend health</span></div>
+      </section>
+
+      <section id="sources" class="workspace-grid">
+        <div class="left-rail">
+          <section class="panel upload-panel">
+            <div class="panel-heading"><div><div class="eyebrow">SOURCE INTAKE</div><h2>Add a geospatial source</h2></div><span class="step-tag">01</span></div>
+            <form id="upload-form">
+              <label class="field-label" for="source-file">Vector file <span>64 MiB maximum</span></label>
+              <input id="source-file" name="file" type="file" accept=".geojson,.json,.gpkg,.zip,.parquet,.pq,.csv,.kml" required>
+              <label class="field-label" for="source-name">Source name</label>
+              <input id="source-name" name="source_name" type="text" placeholder="e.g. Revenue survey 2024" maxlength="120">
+              <label class="field-label" for="source-type">Source category</label>
+              <select id="source-type" name="source_type">
+                <option value="revenue_record">Revenue record</option><option value="cadastral_map">Cadastral map</option><option value="municipal_gis">Municipal GIS</option><option value="building_footprint">Building footprints</option><option value="utility_network">Utility network</option><option value="gnss_cors">GNSS / CORS points</option><option value="drone_imagery">Drone imagery</option><option value="other">Other</option>
+              </select>
+              <label class="field-label" for="source-crs">Source CRS override <span>used only if file CRS is missing</span></label>
+              <input id="source-crs" name="source_crs" type="text" placeholder="e.g. EPSG:4326">
+              <label class="field-label" for="target-crs">Output CRS <span>optional reprojection</span></label>
+              <input id="target-crs" name="project_crs" type="text" placeholder="Leave unchanged">
+              <button class="button button-primary full-width" type="submit"><span aria-hidden="true">＋</span> Validate and register</button>
+              <div id="upload-message" class="inline-message" role="status"></div>
+              <p class="microcopy">Supported here: GeoJSON, GeoPackage, Shapefile ZIP, Parquet, CSV coordinates and KML. Uploaded sources are held in backend memory until restart.</p>
+            </form>
+          </section>
+
+          <section class="panel source-panel">
+            <div class="panel-heading"><div><div class="eyebrow">REGISTERED DATA</div><h2>Source layers</h2></div><button id="refresh-sources" class="icon-button" title="Refresh sources" aria-label="Refresh sources">↻</button></div>
+            <div id="source-list" class="source-list"><div class="empty-state">No uploaded sources yet.</div></div>
+          </section>
+        </div>
+
+        <section class="map-panel" aria-label="Interactive map">
+          <div class="map-toolbar"><div><div class="eyebrow">MAP CANVAS</div><strong>Uploaded layers · EPSG:4326 display</strong></div><div class="map-actions"><button id="fit-map" class="button button-light" title="Fit all visible layers">Fit layers</button><button id="base-toggle" class="button button-light" title="Toggle OpenStreetMap base layer">Basemap on</button></div></div>
+          <div id="map" role="application" aria-label="Interactive map of uploaded source geometries"><div class="map-placeholder" id="map-placeholder">Connect to the backend and upload a spatial source to begin.</div></div>
+          <div class="map-foot"><span><i class="legend-parcel"></i>Uploaded geometry</span><span id="map-count">0 visible features</span><span id="map-crs">No layer selected</span></div>
+        </section>
+      </section>
+
+      <section class="lower-grid">
+        <section id="harmonize" class="panel workflow-panel">
+          <div class="panel-heading"><div><div class="eyebrow">RULE-BASED LINKAGE</div><h2>Harmonize registered sources</h2></div><span class="step-tag">02</span></div>
+          <p class="section-copy">Links only exact normalized ULPIN or complete district, village, tehsil and khasra identifiers. Differing attributes stay unresolved; no source is silently preferred.</p>
+          <div id="harmonize-sources" class="checkbox-list"><span class="muted">Upload sources to select them.</span></div>
+          <div class="button-row"><button id="run-harmonize" class="button button-primary" disabled>Run deterministic harmonization</button><button id="export-harmonized" class="button button-light" disabled>Export GeoJSON</button></div>
+          <div id="harmonize-result" class="result-box" role="status">No harmonization run in this session.</div>
+        </section>
+
+        <section id="ulpin" class="panel workflow-panel">
+          <div class="panel-heading"><div><div class="eyebrow">PARCEL IDENTITY</div><h2>ULPIN / local record lookup</h2></div><span class="step-tag">03</span></div>
+          <p class="section-copy">Searches uploaded records first. No government endpoint is assumed; an external service is queried only when explicitly configured on the backend.</p>
+          <form id="ulpin-form" class="inline-form"><input id="ulpin-value" type="search" placeholder="Enter ULPIN" required><button class="button button-dark" type="submit">Search</button></form>
+          <div id="ulpin-result" class="result-box" role="status">Ready for a local lookup.</div>
+        </section>
+      </section>
+
+      <section id="models" class="panel models-panel">
+        <div class="panel-heading"><div><div class="eyebrow">INFERENCE RUNTIME</div><h2>Model readiness</h2></div><button id="refresh-models" class="button button-light">Probe models</button></div>
+        <div id="model-list" class="model-grid"><div class="empty-state">Probing configured artifacts…</div></div>
+        <div class="model-inference">
+          <div><div class="eyebrow">ENTITY RESOLUTION</div><strong>Run the trained matcher on two records</strong><p class="microcopy">Results require a READY model. Unavailable or incompatible artifacts are shown as backend errors.</p></div>
+          <form id="entity-form" class="entity-form"><textarea id="record-a" placeholder='Record A JSON, e.g. {"village":"Rampur","khasra":"12/3"}' required></textarea><textarea id="record-b" placeholder='Record B JSON' required></textarea><button class="button button-primary" type="submit">Run entity resolution</button></form>
+        </div>
+        <div id="inference-result" class="result-box" role="status">No inference requested.</div>
+      </section>
+
+      <footer class="page-footer"><span>SpatialShiftAI · SIH 2026 · PS 26013</span><span>Benchmark results are not deployment accuracy. Human review required for unresolved conflicts.</span></footer>
+    </main>
+  </div>
+</body>
+</html>

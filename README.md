@@ -3,50 +3,56 @@
 Automated integration and intelligent harmonization of multi-source geospatial
 data for urban land record management (SIH 2026, problem statement 26013).
 
-This repository currently contains the backend and ML foundation, plus the
-Phase 2 canonical geospatial ingestion pipeline. There is no frontend yet, and
-there are no simulated model outputs anywhere in the codebase: every model
-endpoint either runs a real trained artifact or reports that the artifact is
-missing.
+This repository contains the FastAPI backend, canonical vector ingestion,
+deterministic harmonization services, and a browser dashboard served by the
+backend. Model endpoints never fabricate predictions: unavailable or
+incompatible artifacts are reported with their actual readiness state.
 
 ## Layout
 
 ```
 backend/
   app/
-    api/routes/     FastAPI routers (health, models, upload ingestion)
+    api/routes/     FastAPI routers (health, models, data, upload, harmonize, ULPIN)
     core/           settings, logging, error types
     ml/             model manifest, adapters for models 1-5, registry, orchestrator
     schemas/        parcel, provenance, conflict, topology contracts
     services/       geospatial, ingestion, topology, conflict, confidence engines
-  tests/            pytest suite (no network, no trained artifacts required)
+  tests/            pytest suite (small generated fixtures; no large weights required)
 models/             trained artifacts, loaded at runtime, never committed
 data/               sample inputs and JSON schemas
 database/           migrations (Phase 2)
 docs/               architecture, model and API notes
-frontend/           Phase 2
+frontend/           responsive Leaflet dashboard (served at `/`)
 ```
 
-## Setup
+## Local Setup (Windows)
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
-cp .env.example .env          # then point MODEL_ROOT at your artifact directory
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -r backend/requirements.txt
+copy .env.example .env
+.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-## Running
+Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs`
+for OpenAPI. The dashboard uses the current origin as its API URL by default.
+
+## Docker / Render
 
 ```bash
-cd backend
-../.venv/bin/uvicorn app.main:app --reload --port 8000
+docker compose up --build
 ```
 
 - `GET /api/health` – process liveness, environment, resolved device and model root
 - `GET /api/models` – the artifact manifest and per-model artifact presence
 - `GET /api/models/health` – real artifact inspection, and by default a real load attempt
 - `GET /api/models/{model_key}/health` – the same for a single model
-- `POST /api/upload` – ingest GeoJSON, GeoPackage, Shapefile or Parquet sources into the canonical model
+- `POST /api/data/upload` – bounded vector upload, validation and source registration
+- `GET /api/data/sources`, `/api/layers` – registered sources and map layers
+- `POST /api/harmonize` – deterministic identifier linkage, unresolved conflicts and provenance
+- `GET /api/ulpin/{id}` – local uploaded-source lookup or explicit unconfigured-service status
+- `POST /api/upload` – legacy vector ingestion route
 - `GET /api/models/pipeline` – the declared pipeline stages and whether each can run
 - `GET /api/version` – build/runtime metadata
 - `GET /docs` – OpenAPI UI
@@ -83,10 +89,13 @@ $MODEL_ROOT/
 `load_error` or `unsupported_runtime` per model. A model is only `ready` after
 its artifact has actually been loaded in this process.
 
-See <docs/models.md> for the per-model contract and the known limits (for
-example: the parcel matcher needs the trained `nn.Module`, not a bare state
-dict; Model 4 does not use owner names; Model 5 output is a review signal, not
-a fraud determination).
+See [docs/models.md](docs/models.md) for per-model contracts and limitations.
+The recovered Model 1 weights strictly load using their 5-wide Conv1d weight
+shapes, but inference remains blocked because preprocessing and feature
+construction are unavailable. The recovered Model 4 bundle is incompatible
+with the current feature parser. Models 2, 3 and 5 have no recovered inference
+artifacts. Do not interpret controlled benchmark metrics as deployment
+accuracy.
 
 ## Canonical geospatial model and ingestion
 
@@ -94,18 +103,31 @@ The canonical parcel schema supports source metadata, CRS, geometry, parcel
 identity fields, source timestamps, quality flags, and provenance. It keeps
 missing values explicit and never fabricates source values.
 
-Supported vector sources include GeoJSON, GeoPackage, Shapefile and Parquet.
-The ingestion layer validates geometry, detects CRS when possible, normalizes
-attributes, keeps raw properties, records invalid rows without silently
-discarding them, and returns statistics and provenance.
+Supported vector sources include GeoJSON, GeoPackage, Shapefile ZIP, Parquet,
+CSV with latitude/longitude columns and KML where the installed GDAL/Fiona
+driver supports it. Uploads to `/api/data/upload` are limited to 64 MiB (ZIP
+expanded content to 128 MiB). The ingestion layer validates geometry, detects
+CRS when possible, normalizes attributes, keeps raw properties, records
+invalid rows without silently discarding them, and returns statistics and
+provenance. Unknown-CRS geometries are withheld from geographic map display.
+
+Registered sources and harmonization jobs are held in process memory and are
+lost on backend restart. Harmonization links exact normalized ULPINs or complete
+district/village/tehsil/khasra keys; disagreements remain unresolved and no
+source is silently preferred. It is deterministic and does not substitute for
+unavailable ML inference.
+
+The dashboard displays uploaded geometries on a Leaflet map with OpenStreetMap
+tiles, layer visibility, fit-to-bounds, local ULPIN lookup, and source/export
+controls. It uses only records uploaded to the backend; no sample features are
+hardcoded.
 
 ## Production model runtime
 
-The backend exposes the five trained SpatialShiftAI models through the registry
-and model adapters. Each model is configured via `MODEL_ROOT` and resolves its
-artifact directory under that root at runtime, so the trained checkpoints and
-joblib artifacts remain external to Git and can be mounted separately in
-deployment.
+The backend exposes the five model adapters through the registry. Each resolves
+artifacts under `MODEL_ROOT`; model weights remain external to Git. The current
+recovered bundle does not make any model inference-ready, and readiness checks
+report the specific missing or incompatible requirements.
 
 Model keys and expected directories:
 
@@ -129,6 +151,10 @@ Inference endpoints are exposed under the model registry:
 
 The same route family is used for the parcel matcher, building extractor,
 change detector, entity resolver and anomaly detector.
+
+Benchmark figures and their evaluation-set scope are summarized in
+[docs/models.md](docs/models.md). They are training benchmarks, not deployment
+performance.
 
 ## Documentation
 

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv*/
 venv/
 .pytest_cache/
 .mypy_cache/
@@ -21,6 +22,9 @@ models/**/*.pkl
 models/**/*.joblib
 models/**/*.onnx
 models/**/*.h5
+models/**/*.json
+models/**/*.yaml
+models/**/*.yml
 
 # Data
 data/raw/

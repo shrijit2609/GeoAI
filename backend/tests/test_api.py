@@ -8,6 +8,14 @@ def test_health_reports_real_runtime_state(api_client):
     assert payload["model_root_exists"] is True
 
 
+def test_root_serves_the_frontend_dashboard(api_client):
+    response = api_client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Land Record Harmonization" in response.text
+    assert api_client.get("/ui/app.js").status_code == 200
+
+
 def test_version_lists_installed_libraries(api_client):
     payload = api_client.get("/api/version").json()
     assert payload["version"]

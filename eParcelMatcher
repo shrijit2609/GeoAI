@@ -1,0 +1,10 @@
+[35mREADME.md[m[36m:[m[32m73[m[36m:[m  model1_parcel_matcher/     [1;31mparcel_siamese_v2[m_best.pt [+ calibrator, threshold, preprocessing]
+[35mbackend/app/ml/manifest.py[m[36m:[m[32m21[m[36m:[m        ArtifactSpec("[1;31mparcel_siamese_v2[m_best.pt", "checkpoint", required=True),
+[35mbackend/app/ml/manifest.py[m[36m:[m[32m22[m[36m:[m        ArtifactSpec("[1;31mparcel_siamese_v2[m_final.pt", "checkpoint_final", required=False),
+[35mbackend/app/ml/model1_parcel_matcher.py[m[36m:[m[32m49[m[36m:[m        checkpoint_path = self.artifact_path("[1;31mparcel_siamese_v2[m_best.pt")
+[35mbackend/app/ml/model1_parcel_matcher.py[m[36m:[m[32m52[m[36m:[m        self._model_version = checkpoint_version(checkpoint, "[1;31mparcel_siamese_v2[m_best")
+[35mbackend/tests/test_api.py[m[36m:[m[32m24[m[36m:[m    assert "[1;31mparcel_siamese_v2[m_best.pt" in names
+[35mbackend/tests/test_torch_models.py[m[36m:[m[32m204[m[36m:[m        empty_model_root / "model1_parcel_matcher" / "[1;31mparcel_siamese_v2[m_best.pt",
+[35mbackend/tests/test_torch_models.py[m[36m:[m[32m220[m[36m:[m        empty_model_root / "model1_parcel_matcher" / "[1;31mparcel_siamese_v2[m_best.pt",
+[35mdocs/models.md[m[36m:[m[32m30[m[36m:[m`[1;31mparcel_siamese_v2[m_best.pt`, optional isotonic calibrator, threshold and
+[35mmodels/README.md[m[36m:[m[32m12[m[36m:[m| `model1_parcel_matcher/` | `[1;31mparcel_siamese_v2[m_best.pt` | `[1;31mparcel_siamese_v2[m_final.pt`, `parcel_match_isotonic_calibrator.pkl`, `parcel_match_threshold.json`, `parcel_match_preprocessing.json` |

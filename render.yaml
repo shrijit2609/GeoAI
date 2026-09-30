@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: spatialshiftai
+    runtime: docker
+    plan: starter
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: MODEL_ROOT
+        value: /var/data/models
+      - key: SPATIALSHIFT_FRONTEND_ROOT
+        value: /frontend
+      - key: SPATIALSHIFT_DEVICE
+        value: cpu
+      - key: SPATIALSHIFT_ENVIRONMENT
+        value: production
+      - key: SPATIALSHIFT_LOG_LEVEL
+        value: INFO
+    disk:
+      name: spatialshift-model-artifacts
+      mountPath: /var/data
+      sizeGB: 1

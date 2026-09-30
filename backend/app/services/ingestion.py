@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import pandas as pd
 
 from app.core.errors import GeometryError, InvalidInputError
 from app.services.geospatial import to_geojson, to_geometry, transform_geometry, validate_geometry
@@ -41,6 +42,8 @@ _CANONICAL_FIELD_ALIASES = {
     "quality_flags": "quality_flags",
     "source": "source_name",
     "parcel_id": "source_id",
+    "ulpin": "ulpin",
+    "unique_land_parcel_id": "ulpin",
 }
 
 
@@ -164,6 +167,7 @@ def _to_canonical_record(
     warnings: list[str],
     provenance: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
+    record_warnings: list[str] = []
     raw = _normalise_properties(properties)
     geom_obj = to_geometry(geometry)
     final_crs = detected_crs if project_crs is None else project_crs
@@ -176,16 +180,17 @@ def _to_canonical_record(
                 {"type": "crs_transform", "from": detected_crs, "to": project_crs},
             ]
         except Exception as exc:  # pragma: no cover - defensive path
-            warnings.append(f"unable to transform CRS from {detected_crs} to {project_crs}: {exc}")
+            record_warnings.append(f"unable to transform CRS from {detected_crs} to {project_crs}: {exc}")
 
     if detected_crs is None and project_crs:
-        warnings.append("CRS is missing in source metadata; project CRS was requested but source CRS could not be determined.")
+        record_warnings.append("CRS is missing in source metadata; project CRS was requested but source CRS could not be determined.")
 
     source_timestamp = _coerce_datetime(_canonical_value(raw, "source_timestamp", "timestamp", "observed_at"))
 
     record = {
         "internal_id": str(uuid.uuid4()),
         "source_id": source_id,
+        "ulpin": _canonical_value(raw, "ulpin", "unique_land_parcel_id"),
         "source_name": source_name,
         "source_type": source_type,
         "geometry": to_geojson(geom_obj),
@@ -219,10 +224,10 @@ def _to_canonical_record(
     ]
     if missing_fields:
         record["quality_flags"].append("missing_optional_fields")
-        warnings.extend(f"missing optional field: {field}" for field in missing_fields)
+        record_warnings.extend(f"missing optional field: {field}" for field in missing_fields)
 
     record["quality_flags"] = list(dict.fromkeys(record["quality_flags"]))
-    return record, warnings
+    return record, record_warnings
 
 
 class SourceAdapter(ABC):
@@ -230,10 +235,16 @@ class SourceAdapter(ABC):
 
     source_type = "unknown"
 
-    def __init__(self, *, source_name: str, source_type: str | None = None, project_crs: str | None = None) -> None:
+    def __init__(self, *, source_name: str, source_type: str | None = None, project_crs: str | None = None, source_crs: str | None = None) -> None:
         self.source_name = source_name
         self.source_type = source_type or self.source_type
         self.project_crs = project_crs
+        self.source_crs = source_crs
+
+    def apply_source_crs(self, frame: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        if frame.crs is None and self.source_crs:
+            frame = frame.set_crs(self.source_crs, allow_override=True)
+        return frame
 
     @abstractmethod
     def ingest(self, source: Any) -> dict[str, Any]:
@@ -252,7 +263,7 @@ class GeoJSONAdapter(SourceAdapter):
             payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise InvalidInputError("GeoJSON payload must be a mapping")
-        return _ingest_geojson_payload(payload, source_name=self.source_name, source_type=self.source_type, project_crs=self.project_crs)
+        return _ingest_geojson_payload(payload, source_name=self.source_name, source_type=self.source_type, project_crs=self.project_crs, source_crs=self.source_crs)
 
 
 class GeoPackageAdapter(SourceAdapter):
@@ -262,7 +273,7 @@ class GeoPackageAdapter(SourceAdapter):
         path = Path(source)
         if not path.exists():
             raise InvalidInputError(f"source file not found: {path}")
-        frame = gpd.read_file(path)
+        frame = self.apply_source_crs(gpd.read_file(path))
         return _ingest_dataframe(frame, source_name=self.source_name, source_type=self.source_type, project_crs=self.project_crs, source_id=path.stem)
 
 
@@ -273,7 +284,7 @@ class ShapefileAdapter(SourceAdapter):
         path = Path(source)
         if not path.exists():
             raise InvalidInputError(f"source file not found: {path}")
-        frame = gpd.read_file(path)
+        frame = self.apply_source_crs(gpd.read_file(path))
         return _ingest_dataframe(frame, source_name=self.source_name, source_type=self.source_type, project_crs=self.project_crs, source_id=path.stem)
 
 
@@ -284,8 +295,62 @@ class ParquetAdapter(SourceAdapter):
         path = Path(source)
         if not path.exists():
             raise InvalidInputError(f"source file not found: {path}")
-        frame = gpd.read_parquet(path)
+        frame = self.apply_source_crs(gpd.read_parquet(path))
         return _ingest_dataframe(frame, source_name=self.source_name, source_type=self.source_type, project_crs=self.project_crs, source_id=path.stem)
+
+
+class CSVAdapter(SourceAdapter):
+    source_type = "csv"
+
+    def __init__(self, *, source_crs: str | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.source_crs = source_crs
+
+    def ingest(self, source: Any) -> dict[str, Any]:
+        path = Path(source)
+        frame = pd.read_csv(path)
+        columns = {str(column).strip().casefold(): column for column in frame.columns}
+        latitude_column = next(
+            (columns[key] for key in ("latitude", "lat", "y") if key in columns),
+            None,
+        )
+        longitude_column = next(
+            (columns[key] for key in ("longitude", "lon", "long", "x") if key in columns),
+            None,
+        )
+        if latitude_column is None or longitude_column is None:
+            raise InvalidInputError(
+                "CSV ingestion requires latitude/longitude or y/x columns"
+            )
+        geometry = gpd.points_from_xy(frame[longitude_column], frame[latitude_column])
+        geoframe = gpd.GeoDataFrame(frame, geometry=geometry)
+        geoframe = self.apply_source_crs(geoframe)
+        result = _ingest_dataframe(
+            geoframe,
+            source_name=self.source_name,
+            source_type=self.source_type,
+            project_crs=self.project_crs,
+            source_id=path.stem,
+        )
+        if not self.source_crs:
+            result["warnings"].append(
+                "CSV coordinates have no declared CRS; geometry is retained without reprojection"
+            )
+        return result
+
+
+class KMLAdapter(SourceAdapter):
+    source_type = "kml"
+
+    def ingest(self, source: Any) -> dict[str, Any]:
+        frame = self.apply_source_crs(gpd.read_file(source, driver="KML"))
+        return _ingest_dataframe(
+            frame,
+            source_name=self.source_name,
+            source_type=self.source_type,
+            project_crs=self.project_crs,
+            source_id=Path(source).stem,
+        )
 
 
 def _ingest_geojson_payload(
@@ -294,8 +359,9 @@ def _ingest_geojson_payload(
     source_name: str,
     source_type: str,
     project_crs: str | None,
+    source_crs: str | None = None,
 ) -> dict[str, Any]:
-    document_crs = _explicit_crs_from_geojson(payload)
+    document_crs = _explicit_crs_from_geojson(payload) or source_crs
     features = payload.get("features")
     if not isinstance(features, list):
         raise InvalidInputError("GeoJSON document must contain a 'features' list")
@@ -489,30 +555,35 @@ def get_adapter_for_source(
     project_crs: str | None = None,
     source_path: str | Path | None = None,
     payload: dict[str, Any] | None = None,
+    source_crs: str | None = None,
 ) -> SourceAdapter:
     if payload is not None:
-        return GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+        return GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     if source_path is None:
         raise InvalidInputError("source_path or payload is required")
     path = Path(source_path)
     suffix = path.suffix.lower()
     if suffix in {".geojson", ".json"}:
-        return GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+        return GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     if suffix == ".gpkg":
-        return GeoPackageAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+        return GeoPackageAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     if suffix == ".shp":
-        return ShapefileAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+        return ShapefileAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     if suffix in {".parquet", ".pq"}:
-        return ParquetAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+        return ParquetAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
+    if suffix == ".csv":
+        return CSVAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
+    if suffix == ".kml":
+        return KMLAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     raise InvalidInputError(f"unsupported source format: {suffix or path.name}")
 
 
-def ingest_payload(payload: dict[str, Any], *, source_name: str, source_type: str | None = None, project_crs: str | None = None) -> dict[str, Any]:
-    adapter = GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs)
+def ingest_payload(payload: dict[str, Any], *, source_name: str, source_type: str | None = None, project_crs: str | None = None, source_crs: str | None = None) -> dict[str, Any]:
+    adapter = GeoJSONAdapter(source_name=source_name, source_type=source_type, project_crs=project_crs, source_crs=source_crs)
     return adapter.ingest(payload)
 
 
-def ingest_file(source: str | Path, *, source_name: str | None = None, source_type: str | None = None, project_crs: str | None = None) -> dict[str, Any]:
+def ingest_file(source: str | Path, *, source_name: str | None = None, source_type: str | None = None, project_crs: str | None = None, source_crs: str | None = None) -> dict[str, Any]:
     path = Path(source)
     if not path.exists():
         raise InvalidInputError(f"source file not found: {path}")
@@ -521,6 +592,7 @@ def ingest_file(source: str | Path, *, source_name: str | None = None, source_ty
         source_type=source_type,
         project_crs=project_crs,
         source_path=path,
+        source_crs=source_crs,
     )
     return adapter.ingest(path)
 

@@ -21,6 +21,7 @@ from app.core.errors import (
 )
 from app.ml.common import ModelStatus
 from app.ml.model_registry import ModelRegistry
+from app.ml.record_features import compute_model4_features
 
 joblib = pytest.importorskip("joblib")
 sklearn = pytest.importorskip("sklearn")
@@ -36,6 +37,57 @@ def _fit_logistic(n_features: int) -> tuple[LogisticRegression, StandardScaler]:
     scaler = StandardScaler().fit(features)
     model = LogisticRegression().fit(scaler.transform(features), labels)
     return model, scaler
+
+
+def test_model4_notebook_features_preserve_order_and_both_empty():
+    string_suffixes = [
+        "both_empty", "one_empty", "exact", "len_a", "len_b",
+        "len_ratio", "ratio", "wratio", "token_sort", "token_set",
+        "partial", "char3_jaccard", "token_overlap", "same_script",
+        "cross_script",
+    ]
+    feature_names = [
+        f"{field}__{suffix}"
+        for field in ("village", "district", "khasra", "tehsil", "block", "pargana")
+        for suffix in string_suffixes
+    ]
+    feature_names.extend(
+        f"area__{suffix}"
+        for suffix in (
+            "exact", "both_empty", "one_empty", "relative_diff",
+            "close_1pct", "close_5pct", "close_10pct",
+        )
+    )
+    feature_names.extend(
+        [
+            "cross__district_khasra_exact",
+            "cross__district_pargana_exact",
+            "cross__district_village_exact",
+            "cross__strong_cadastral_identity",
+            "cross__exact_field_count",
+            "cross__available_field_count",
+            "cross__exact_field_ratio",
+        ]
+    )
+    fields = ("village", "district", "khasra", "tehsil", "block", "pargana", "area")
+    schema = {
+        "feature_count": 104,
+        "features": feature_names,
+        "field_mapping": {field: [f"a_{field}", f"b_{field}"] for field in fields},
+    }
+
+    matrix, detail = compute_model4_features(
+        schema,
+        {"village": "", "district": "Agra", "khasra": "12/3", "tehsil": "Sikandra", "block": "A", "pargana": "P", "area": 100.0},
+        {"village": None, "district": "Agra", "khasra": "12/3", "tehsil": "Sikandra", "block": "A", "pargana": "P", "area": 100.0},
+    )
+
+    assert matrix.shape == (1, 104)
+    assert list(detail) == feature_names
+    assert detail["village__both_empty"]["value"] == 1.0
+    assert detail["village__one_empty"]["value"] == 0.0
+    assert detail["village__exact"]["value"] == 0.0
+    assert detail["cross__strong_cadastral_identity"]["value"] == 1.0
 
 
 @pytest.fixture

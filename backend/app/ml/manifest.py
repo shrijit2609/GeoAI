@@ -125,6 +125,8 @@ ANOMALY_DETECTOR = ModelSpec(
         ArtifactSpec("model5_feature_scaler.joblib", "scaler", required=False),
         ArtifactSpec("model5_isotonic_calibrator.joblib", "calibrator", required=False),
         ArtifactSpec("model5_threshold.json", "threshold", required=False),
+        ArtifactSpec("model5_isolation_forest.joblib", "isolation_forest", required=False),
+        ArtifactSpec("model5_inference_config.json", "inference_config", required=False),
     ),
     readiness_requirements=(
         "classifier and feature schema are present and parseable",

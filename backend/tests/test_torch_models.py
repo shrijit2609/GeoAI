@@ -20,7 +20,9 @@ from app.core.errors import (
 )
 from app.ml.common import ModelStatus
 from app.ml.imaging import LoadedImage
+from app.ml.model1_parcel_matcher import sample_parcel_boundary
 from app.ml.model_registry import ModelRegistry
+from shapely.geometry import MultiPolygon, Polygon
 
 torch = pytest.importorskip("torch")
 torchvision = pytest.importorskip("torchvision")
@@ -52,6 +54,23 @@ class TinySiamese(torch.nn.Module):
 def rgb_image(seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.integers(0, 255, size=(64, 64, 3), dtype=np.uint8)
+
+
+def test_model1_boundary_sampling_matches_training_notebook():
+    square = Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)])
+    small = Polygon([(10, 10), (11, 10), (11, 11), (10, 11), (10, 10)])
+    points = sample_parcel_boundary(MultiPolygon([square, small]), n=4)
+
+    expected = np.asarray(
+        [
+            [-1.0, -1.0],
+            [1.0, -1.0],
+            [1.0, 1.0],
+            [-1.0, 1.0],
+        ],
+        dtype=np.float32,
+    ) / np.sqrt(2.0)
+    np.testing.assert_allclose(points, expected, rtol=1e-6, atol=1e-6)
 
 
 @pytest.fixture

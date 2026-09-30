@@ -1,14 +1,17 @@
 services:
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     environment:
       MODEL_ROOT: /models
       SPATIALSHIFT_DEVICE: ${SPATIALSHIFT_DEVICE:-auto}
       SPATIALSHIFT_LOG_LEVEL: ${SPATIALSHIFT_LOG_LEVEL:-INFO}
-      SPATIALSHIFT_ENV: ${SPATIALSHIFT_ENV:-development}
+      SPATIALSHIFT_ENVIRONMENT: ${SPATIALSHIFT_ENVIRONMENT:-development}
+      SPATIALSHIFT_FRONTEND_ROOT: /frontend
+      SPATIALSHIFT_CORS_ORIGINS: ${SPATIALSHIFT_CORS_ORIGINS:-http://localhost:8000}
     volumes:
       # trained artifacts live outside the image and outside Git
       - ${MODEL_ROOT:-./models}:/models:ro

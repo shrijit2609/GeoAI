@@ -52,6 +52,7 @@ def list_models(registry: ModelRegistry = Depends(registry_dependency)) -> dict[
 
 
 @router.get("/health")
+@router.get("/readiness")
 def models_health(
     probe: bool = Query(True, description="Attempt a real load of each model"),
     include_hash: bool = Query(False, description="Include sha256 of present artifacts"),
