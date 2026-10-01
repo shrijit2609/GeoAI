@@ -36,6 +36,10 @@ class SourceCatalog:
             source = self._sources.get(source_id)
             return dict(source) if source is not None else None
 
+    def delete_source(self, source_id: str) -> bool:
+        with self._lock:
+            return self._sources.pop(source_id, None) is not None
+
     def list_layers(self) -> list[dict[str, Any]]:
         with self._lock:
             return [

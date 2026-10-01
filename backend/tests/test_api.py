@@ -30,6 +30,8 @@ def test_models_endpoint_lists_expected_artifacts(api_client):
     parcel = next(m for m in payload["models"] if m["key"] == "parcel_matcher")
     names = [artifact["name"] for artifact in parcel["artifacts"]]
     assert "parcel_siamese_v2_best.pt" in names
+    for field in ("model_key", "name", "purpose", "architecture_name", "artifact", "status", "live_inference_available", "readiness_reason", "version", "benchmark_metrics"):
+        assert field in parcel
     assert all(artifact["present"] is False for artifact in parcel["artifacts"])
 
 
@@ -117,3 +119,78 @@ def test_model_inference_compatibility_routes_use_the_registry(api_client):
         response = api_client.post(path, json=payload)
         assert response.status_code == 503
         assert response.json()["error"] == "missing_artifact"
+
+
+def test_sources_preview_register_detail_and_delete(api_client):
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"district": "Agra", "village": "Rampur", "khasra": "12"},
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+            }
+        ],
+    }
+    preview = api_client.post(
+        "/api/sources/upload",
+        files={"file": ("revenue.geojson", __import__("json").dumps(geojson), "application/geo+json")},
+        data={"source_name": "Revenue demo", "source_type": "revenue_record", "source_crs": "EPSG:4326", "register": "false"},
+    )
+    assert preview.status_code == 200
+    preview_payload = preview.json()
+    assert preview_payload["registered"] is False
+    assert preview_payload["valid_records"] == 1
+
+    registered = api_client.post("/api/sources/register", json=preview_payload)
+    assert registered.status_code == 200
+    source_id = registered.json()["source_id"]
+    assert api_client.get("/api/sources").json()["count"] == 1
+    assert api_client.get(f"/api/sources/{source_id}").status_code == 200
+    assert api_client.get("/api/map/layers").json()["layers"][0]["feature_count"] == 1
+    deleted = api_client.delete(f"/api/sources/{source_id}")
+    assert deleted.json()["deleted"] is True
+    assert api_client.get(f"/api/sources/{source_id}").status_code == 404
+
+
+def test_harmonization_returns_skipped_model_stages_and_provenance(api_client):
+    source_ids = []
+    for suffix, village in (("a", "Rampur"), ("b", "Ramnagar")):
+        response = api_client.post(
+            "/api/sources/register",
+            json={
+                "source_name": f"source-{suffix}",
+                "source_type": "revenue_record",
+                "detected_crs": "EPSG:4326",
+                "records": [
+                    {
+                        "source_id": f"record-{suffix}",
+                        "crs": "EPSG:4326",
+                        "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+                        "raw_attributes": {"ulpin": "UP-1", "district": "Agra", "village": village, "khasra": "12"},
+                    }
+                ],
+            },
+        )
+        source_ids.append(response.json()["source_id"])
+
+    job = api_client.post("/api/harmonization/run", json={"source_ids": source_ids}).json()
+    assert job["status"] == "completed"
+    assert job["stages"]["building_extraction"]["status"] == "SKIPPED"
+    assert job["stages"]["change_detection"]["status"] == "SKIPPED"
+    assert job["stages"]["building_extraction"]["reason"]
+    properties = job["feature_collection"]["features"][0]["properties"]
+    for field in (
+        "source_id", "source_name", "source_type", "source_timestamp", "source_fields",
+        "original_attributes", "model_evidence", "confidence", "conflicts",
+        "resolution_reason", "processing_timestamp",
+    ):
+        assert field in properties
+    assert job["conflicts"][0]["conflict_type"] == "attribute_conflict"
+    assert job["conflicts"][0]["status"] == "Requires review"
+    assert api_client.get(f"/api/harmonization/{job['job_id']}").status_code == 200
+    assert api_client.get(f"/api/harmonization/{job['job_id']}/results").status_code == 200
+    assert api_client.get(f"/api/exports/{job['job_id']}?format=conflicts").status_code == 200
+    assert api_client.get(f"/api/exports/{job['job_id']}?format=provenance").status_code == 200
+    for source_id in source_ids:
+        assert api_client.delete(f"/api/sources/{source_id}").status_code == 200

@@ -28,15 +28,21 @@ router = APIRouter()
 def dashboard_summary() -> dict[str, Any]:
     sources = source_catalog.list_sources()
     jobs = [job for job in source_catalog._jobs.values()]
-    registry_summary = get_registry().summary(probe=False)
+    registry_summary = get_registry().summary(probe=True)
 
     feature_count = sum(len(source.get("records", [])) for source in sources)
     conflict_count = sum(len(job.get("conflicts", [])) for job in jobs)
+    anomaly_count = sum(len(job.get("anomalies", [])) for job in jobs)
     harmonized_parcels = sum(int(job.get("feature_count", 0)) for job in jobs)
     confidence_values: list[float] = []
     for source in sources:
         for record in source.get("records", []):
             value = record.get("confidence")
+            if isinstance(value, (int, float)):
+                confidence_values.append(float(value))
+    for job in jobs:
+        for feature in (job.get("feature_collection") or {}).get("features", []):
+            value = (feature.get("properties") or {}).get("confidence")
             if isinstance(value, (int, float)):
                 confidence_values.append(float(value))
     average_confidence = (
@@ -51,7 +57,7 @@ def dashboard_summary() -> dict[str, Any]:
         "total_features": feature_count,
         "harmonized_parcels": harmonized_parcels,
         "conflicts": conflict_count,
-        "anomalies": 0,
+        "anomalies": anomaly_count,
         "average_confidence": average_confidence,
         "models_ready": int(registry_summary.get("ready", 0)),
         "processing_jobs": len(jobs),
@@ -84,8 +90,9 @@ async def source_upload_compat(
     source_type: str | None = Form(default=None),
     source_crs: str | None = Form(default=None),
     project_crs: str | None = Form(default=None),
+    register_source: bool = Form(default=False, alias="register"),
 ):
-    return await upload_data(file=file, payload=payload, source_name=source_name, source_type=source_type, source_crs=source_crs, project_crs=project_crs)
+    return await upload_data(file=file, payload=payload, source_name=source_name, source_type=source_type, source_crs=source_crs, project_crs=project_crs, register_source=register_source)
 
 
 @router.post("/sources/register")
@@ -95,6 +102,8 @@ def source_register_compat(payload: dict[str, Any] = Body(...)) -> dict[str, Any
     source = payload.get("source") if isinstance(payload.get("source"), dict) else payload
     if not source.get("source_name"):
         raise HTTPException(status_code=422, detail="source_name is required for registration")
+    if not isinstance(source.get("records"), list):
+        raise HTTPException(status_code=422, detail="source must contain validated records")
     return source_catalog.register(source)
 
 
@@ -104,6 +113,13 @@ def source_detail_compat(source_id: str) -> dict[str, Any]:
     if payload is None:
         raise HTTPException(status_code=404, detail="source not found")
     return payload
+
+
+@router.delete("/sources/{source_id}")
+def delete_source_compat(source_id: str) -> dict[str, Any]:
+    if not source_catalog.delete_source(source_id):
+        raise HTTPException(status_code=404, detail="source not found")
+    return {"source_id": source_id, "deleted": True}
 
 
 @router.get("/map/layers")
@@ -193,4 +209,14 @@ def export_compat(job_id: str, format: str = "geojson") -> Response:
             lines.append(",".join(f'"{value}"' if "," in value or '"' in value else value for value in values))
         body = "\n".join(lines)
         return Response(body, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{job_id}.csv"'})
+    if format.lower() == "conflicts":
+        payload = json.dumps(job.get("conflicts", []), ensure_ascii=False, indent=2)
+        return Response(payload, media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{job_id}-conflicts.json"'})
+    if format.lower() == "provenance":
+        report = [
+            {"record_id": feature.get("id"), "provenance": feature.get("properties", {}).get("provenance"), "model_evidence": feature.get("properties", {}).get("model_evidence"), "source_records": feature.get("properties", {}).get("source_records"), "resolution_reason": feature.get("properties", {}).get("resolution_reason"), "processing_timestamp": feature.get("properties", {}).get("processing_timestamp")}
+            for feature in collection.get("features", [])
+        ]
+        payload = json.dumps(report, ensure_ascii=False, indent=2)
+        return Response(payload, media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{job_id}-provenance.json"'})
     raise HTTPException(status_code=400, detail="unsupported export format")

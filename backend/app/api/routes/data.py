@@ -84,6 +84,7 @@ async def upload_data(
     source_type: str | None = Form(default=None),
     source_crs: str | None = Form(default=None),
     project_crs: str | None = Form(default=None),
+    register_source: bool = Form(default=True, alias="register"),
 ):
     try:
         if payload is not None:
@@ -119,8 +120,10 @@ async def upload_data(
                     result = ingest_file(path, **ingest_kwargs)
         else:
             raise InvalidInputError("provide a vector file or a GeoJSON payload")
+        if not register_source:
+            return {**result, "registered": False}
         summary = source_catalog.register(result)
-        return {**result, "source_id": summary["source_id"]}
+        return {**result, "source_id": summary["source_id"], "registered": True}
     except (InvalidInputError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

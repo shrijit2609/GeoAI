@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import time
 from typing import Any
 
@@ -55,13 +57,28 @@ def build_reference_network(num_classes: int = 1):
                 nn.Conv2d(512, 256, 3, padding=1),
                 nn.BatchNorm2d(256),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(256, 128, 3, padding=1),
+
+                nn.ConvTranspose2d(256, 128, 2, stride=2),
                 nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(128, 64, 3, padding=1),
+
+                nn.ConvTranspose2d(128, 64, 2, stride=2),
                 nn.BatchNorm2d(64),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(64, num_classes, 1),
+
+                nn.ConvTranspose2d(64, 32, 2, stride=2),
+                nn.BatchNorm2d(32),
+                nn.ReLU(inplace=True),
+
+                nn.ConvTranspose2d(32, 16, 2, stride=2),
+                nn.BatchNorm2d(16),
+                nn.ReLU(inplace=True),
+
+                nn.ConvTranspose2d(16, 8, 2, stride=2),
+                nn.BatchNorm2d(8),
+                nn.ReLU(inplace=True),
+
+                nn.Conv2d(8, num_classes, 1),
             )
 
         def forward(self, before, after):
@@ -165,6 +182,10 @@ class ChangeDetector(BaseModelAdapter):
         mean_confidence = (
             float(probability[binary == 1].mean()) if changed else None
         )
+        mask_buffer = io.BytesIO()
+        from PIL import Image
+
+        Image.fromarray((binary * 255).astype(np.uint8)).save(mask_buffer, format="PNG")
 
         return self.build_result(
             confidence=mean_confidence,
@@ -176,6 +197,8 @@ class ChangeDetector(BaseModelAdapter):
                 "changed_pixel_percentage": changed_percentage,
                 "changed_pixel_count": int(changed),
                 "total_pixels": int(binary.size),
+                "mask_shape": list(binary.shape),
+                "mask_png_base64": base64.b64encode(mask_buffer.getvalue()).decode("ascii"),
                 "probability_mask_summary": {
                     "min": float(probability.min()),
                     "max": float(probability.max()),

@@ -27,6 +27,7 @@ class ModelStatus(str, Enum):
     )
     ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED = "artifact_present_but_inference_blocked"
     TRAINING_REQUIRED = "training_required"
+    INVALID = "invalid"
     MISSING_ARTIFACT = "missing_artifact"
     ERROR = "error"
     LOAD_ERROR = "error"
@@ -68,6 +69,9 @@ class ModelSpec:
     readiness_requirements: tuple[str, ...] = field(default_factory=tuple)
     missing_status: ModelStatus = ModelStatus.MISSING_ARTIFACT
     missing_status_reason: str | None = None
+    purpose: str = ""
+    dataset: str | None = None
+    benchmark_metrics: dict[str, Any] = field(default_factory=dict)
 
     def model_dir(self, model_root: Path) -> Path:
         return model_root / self.directory
@@ -99,7 +103,19 @@ class ModelHealth(BaseModel):
     task: str
     runtime: ModelRuntime
     status: ModelStatus
+    status_group: str = "MISSING_ARTIFACT"
     model_dir: str
+    model_key: str | None = None
+    name: str | None = None
+    purpose: str | None = None
+    dataset: str | None = None
+    architecture_name: str | None = None
+    artifact: str | None = None
+    live_inference_available: bool = False
+    version: str | None = None
+    artifact_path: str | None = None
+    last_validation: _dt.datetime | None = None
+    benchmark_metrics: dict[str, Any] = Field(default_factory=dict)
     loaded: bool = False
     load_time_ms: float | None = None
     device: str | None = None

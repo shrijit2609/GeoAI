@@ -21,11 +21,18 @@
       </a>
       <div class="workspace-label">WORKSPACE</div>
       <nav class="nav-list" aria-label="Workspace views">
-        <a class="nav-item active" href="#overview"><span class="nav-glyph">01</span>Overview</a>
-        <a class="nav-item" href="#sources"><span class="nav-glyph">02</span>Sources & map</a>
-        <a class="nav-item" href="#harmonize"><span class="nav-glyph">03</span>Harmonization</a>
-        <a class="nav-item" href="#ulpin"><span class="nav-glyph">04</span>ULPIN lookup</a>
-        <a class="nav-item" href="#models"><span class="nav-glyph">05</span>Model readiness</a>
+        <a class="nav-item active" href="#overview">Overview</a>
+        <a class="nav-item" href="#sources">Data Sources</a>
+        <a class="nav-item" href="#workspace">Geospatial Workspace</a>
+        <a class="nav-item" href="#harmonize">Harmonization</a>
+        <a class="nav-item" href="#models">AI Models</a>
+        <a class="nav-item" href="#parcels">Parcel Explorer</a>
+        <a class="nav-item" href="#conflicts">Conflicts &amp; Anomalies</a>
+        <a class="nav-item" href="#change-detection">Change Detection</a>
+        <a class="nav-item" href="#building-extraction">Building Extraction</a>
+        <a class="nav-item" href="#ulpin">ULPIN Lookup</a>
+        <a class="nav-item" href="#exports">Exports</a>
+        <a class="nav-item" href="#system">System</a>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-foot"><span class="live-dot"></span><span id="side-health">Connecting to API</span></div>
@@ -41,8 +48,18 @@
       <section id="overview" class="status-strip" aria-label="System summary">
         <div class="status-cell"><span class="metric-label">REGISTERED SOURCES</span><strong id="metric-sources">0</strong></div>
         <div class="status-cell"><span class="metric-label">VALID FEATURES</span><strong id="metric-features">0</strong></div>
+        <div class="status-cell"><span class="metric-label">HARMONIZED PARCELS</span><strong id="metric-harmonized">0</strong></div>
+        <div class="status-cell"><span class="metric-label">CONFLICTS</span><strong id="metric-conflicts">0</strong></div>
+        <div class="status-cell"><span class="metric-label">ANOMALIES</span><strong id="metric-anomalies">0</strong></div>
+        <div class="status-cell"><span class="metric-label">AVERAGE CONFIDENCE</span><strong id="metric-confidence">—</strong></div>
         <div class="status-cell"><span class="metric-label">MODEL READINESS</span><strong id="metric-models">Loading</strong></div>
         <div class="status-cell status-cell-note"><span class="live-dot"></span><span id="health-text">Checking backend health</span></div>
+      </section>
+
+      <section class="overview-band" aria-label="Operational overview">
+        <div><div class="eyebrow">RECENT PROCESSING</div><strong id="recent-activity">No harmonization jobs yet</strong><span id="processing-jobs" class="muted">0 processing jobs</span></div>
+        <div><div class="eyebrow">SOURCE HEALTH</div><strong id="source-health">No sources registered</strong><span id="data-quality" class="muted">Warnings will be shown here</span></div>
+        <div><div class="eyebrow">MODEL HEALTH</div><strong id="model-health">Waiting for readiness probe</strong><span id="conflict-summary" class="muted">No conflict review yet</span></div>
       </section>
 
       <section id="sources" class="workspace-grid">
@@ -62,8 +79,10 @@
               <input id="source-crs" name="source_crs" type="text" placeholder="e.g. EPSG:4326">
               <label class="field-label" for="target-crs">Output CRS <span>optional reprojection</span></label>
               <input id="target-crs" name="project_crs" type="text" placeholder="Leave unchanged">
-              <button class="button button-primary full-width" type="submit"><span aria-hidden="true">＋</span> Validate and register</button>
+              <button class="button button-primary full-width" type="submit"><span aria-hidden="true">＋</span> Inspect and validate</button>
               <div id="upload-message" class="inline-message" role="status"></div>
+              <div id="upload-preview" class="upload-preview" hidden></div>
+              <button id="register-source" class="button button-dark full-width" type="button" hidden>Register validated source</button>
               <p class="microcopy">Supported here: GeoJSON, GeoPackage, Shapefile ZIP, Parquet, CSV coordinates and KML. Uploaded sources are held in backend memory until restart.</p>
             </form>
           </section>
@@ -74,8 +93,8 @@
           </section>
         </div>
 
-        <section class="map-panel" aria-label="Interactive map">
-          <div class="map-toolbar"><div><div class="eyebrow">MAP CANVAS</div><strong>Uploaded layers · EPSG:4326 display</strong></div><div class="map-actions"><button id="fit-map" class="button button-light" title="Fit all visible layers">Fit layers</button><button id="base-toggle" class="button button-light" title="Toggle OpenStreetMap base layer">Basemap on</button></div></div>
+        <section id="workspace" class="map-panel" aria-label="Interactive map">
+          <div class="map-toolbar"><div><div class="eyebrow">MAP CANVAS</div><strong>Uploaded layers · EPSG:4326 display</strong></div><div class="map-actions"><label class="opacity-control">Opacity <input id="layer-opacity" type="range" min="0" max="100" value="32" aria-label="Layer opacity"></label><button id="fit-map" class="button button-light" title="Fit all visible layers">Fit layers</button><button id="base-toggle" class="button button-light" title="Toggle OpenStreetMap base layer">Basemap on</button></div></div>
           <div id="map" role="application" aria-label="Interactive map of uploaded source geometries"><div class="map-placeholder" id="map-placeholder">Connect to the backend and upload a spatial source to begin.</div></div>
           <div class="map-foot"><span><i class="legend-parcel"></i>Uploaded geometry</span><span id="map-count">0 visible features</span><span id="map-crs">No layer selected</span></div>
         </section>
@@ -83,10 +102,10 @@
 
       <section class="lower-grid">
         <section id="harmonize" class="panel workflow-panel">
-          <div class="panel-heading"><div><div class="eyebrow">RULE-BASED LINKAGE</div><h2>Harmonize registered sources</h2></div><span class="step-tag">02</span></div>
-          <p class="section-copy">Links only exact normalized ULPIN or complete district, village, tehsil and khasra identifiers. Differing attributes stay unresolved; no source is silently preferred.</p>
+          <div class="panel-heading"><div><div class="eyebrow">MULTI-SOURCE LINKAGE</div><h2>Harmonize registered sources</h2></div><span class="step-tag">02</span></div>
+          <p class="section-copy">Validates source records, generates spatial candidates, runs available parcel/entity/anomaly models, preserves unresolved differences, and records model evidence and provenance. Unavailable image stages are skipped with their readiness reason.</p>
           <div id="harmonize-sources" class="checkbox-list"><span class="muted">Upload sources to select them.</span></div>
-          <div class="button-row"><button id="run-harmonize" class="button button-primary" disabled>Run deterministic harmonization</button><button id="export-harmonized" class="button button-light" disabled>Export GeoJSON</button></div>
+          <div class="button-row"><button id="run-harmonize" class="button button-primary" disabled>Run harmonization</button><button id="export-harmonized" class="button button-light" disabled>Export GeoJSON</button></div>
           <div id="harmonize-result" class="result-box" role="status">No harmonization run in this session.</div>
         </section>
 
@@ -106,6 +125,45 @@
           <form id="entity-form" class="entity-form"><textarea id="record-a" placeholder='Record A JSON, e.g. {"village":"Rampur","khasra":"12/3"}' required></textarea><textarea id="record-b" placeholder='Record B JSON' required></textarea><button class="button button-primary" type="submit">Run entity resolution</button></form>
         </div>
         <div id="inference-result" class="result-box" role="status">No inference requested.</div>
+      </section>
+
+      <section id="parcels" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">UNIFIED PARCELS</div><h2>Parcel explorer</h2></div><span id="parcel-count" class="step-tag">0 records</span></div>
+        <div class="table-tools"><input id="parcel-search" type="search" placeholder="Search ULPIN, khasra, village, district"><select id="parcel-source-filter" aria-label="Filter by source"><option value="">All sources</option></select></div>
+        <div class="table-scroll"><table><thead><tr><th>Parcel</th><th>ULPIN</th><th>Village</th><th>Khasra</th><th>Area</th><th>Sources</th><th>Confidence</th><th>Conflicts</th><th>Status</th></tr></thead><tbody id="parcel-table"><tr><td colspan="9" class="empty-state">Upload sources and harmonize to explore parcels.</td></tr></tbody></table></div>
+        <aside id="parcel-detail" class="detail-drawer" hidden><button id="close-parcel-detail" class="icon-button" aria-label="Close parcel details">×</button><div class="eyebrow">PARCEL DETAIL</div><div id="parcel-detail-content"></div></aside>
+      </section>
+
+      <section id="conflicts" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">HUMAN REVIEW</div><h2>Conflicts &amp; anomalies</h2></div><span id="conflict-count" class="step-tag">0 items</span></div>
+        <div class="table-tools"><input id="conflict-search" type="search" placeholder="Search record, type, source"><select id="conflict-type-filter"><option value="">All types</option><option value="attribute_conflict">Attribute conflict</option><option value="potential_anomaly">Potential anomaly</option><option value="identity_conflict">Identity conflict</option></select></div>
+        <div class="table-scroll"><table><thead><tr><th>Record</th><th>Type</th><th>Severity</th><th>Confidence</th><th>Source</th><th>Explanation</th><th>Status</th></tr></thead><tbody id="conflict-table"><tr><td colspan="7" class="empty-state">No conflicts have been generated.</td></tr></tbody></table></div>
+      </section>
+
+      <section id="change-detection" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">MODEL 3 · TEMPORAL CHANGE</div><h2>Change detection</h2></div><span id="change-status" class="model-status training_required">Training required</span></div>
+        <form id="change-form" class="image-inference-form"><label>Before image<input id="before-image" type="file" accept="image/*,.tif,.tiff" required></label><label>After image<input id="after-image" type="file" accept="image/*,.tif,.tiff" required></label><button id="run-change" class="button button-primary" type="submit">Run change detection</button></form>
+        <div class="image-results"><figure><img id="before-preview" class="mask-preview" alt="Selected before image" hidden><figcaption>Before</figcaption></figure><figure><img id="after-preview" class="mask-preview" alt="Selected after image" hidden><figcaption>After</figcaption></figure><figure><img id="change-mask-preview" class="mask-preview" alt="Model 3 generated change mask" hidden><figcaption>Change mask</figcaption></figure></div>
+        <div id="change-result" class="result-box">A real Model 3 checkpoint is required. No change mask will be generated while training is required.</div>
+      </section>
+
+      <section id="building-extraction" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">MODEL 2 · BUILDING FOOTPRINTS</div><h2>Building extraction</h2></div><span id="building-status" class="model-status training_required">Training required</span></div>
+        <form id="building-form" class="image-inference-form"><label>Input image<input id="building-image" type="file" accept="image/*,.tif,.tiff" required></label><button id="run-building" class="button button-primary" type="submit">Extract footprints</button></form>
+        <div class="image-results"><figure><img id="building-source-preview" class="mask-preview" alt="Selected building extraction image" hidden><figcaption>Original image</figcaption></figure><figure><img id="building-mask-preview" class="mask-preview" alt="Model 2 generated building mask" hidden><figcaption>Building mask</figcaption></figure></div>
+        <div id="building-result" class="result-box">A real Model 2 checkpoint is required. No building mask will be generated while training is required.</div>
+      </section>
+
+      <section id="exports" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">DELIVERABLES</div><h2>Exports</h2></div></div>
+        <p class="section-copy">Exports are enabled after a harmonization result exists in this backend session.</p>
+        <div class="button-row"><button id="export-geojson" class="button button-light" disabled>Download GeoJSON</button><button id="export-csv" class="button button-light" disabled>Download CSV</button><button id="export-conflicts" class="button button-light" disabled>Conflict report</button><button id="export-provenance" class="button button-light" disabled>Provenance report</button></div>
+        <div id="export-message" class="result-box">No export is ready.</div>
+      </section>
+
+      <section id="system" class="panel product-panel">
+        <div class="panel-heading"><div><div class="eyebrow">RUNTIME</div><h2>System status</h2></div></div>
+        <pre id="system-details" class="system-output">Connecting to backend…</pre>
       </section>
 
       <footer class="page-footer"><span>SpatialShiftAI · SIH 2026 · PS 26013</span><span>Benchmark results are not deployment accuracy. Human review required for unresolved conflicts.</span></footer>

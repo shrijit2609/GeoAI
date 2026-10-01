@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,7 @@ class BaseModelAdapter:
         self._error: str | None = None
         self._status: ModelStatus = ModelStatus.MISSING_ARTIFACT
         self._model_version: str = "unknown"
+        self._last_validation: dt.datetime | None = None
 
     # ------------------------------------------------------------------
     # artifact handling
@@ -130,6 +132,8 @@ class BaseModelAdapter:
     ) -> ModelStatus:
         if self.spec.key == "parcel_matcher" and "preprocessing" in str(error).lower():
             return ModelStatus.ARTIFACT_PRESENT_BUT_PREPROCESSING_BLOCKED
+        if "weights do not match the expected architecture" in str(error).lower():
+            return ModelStatus.INVALID
         return ModelStatus.ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED
 
     def unload(self) -> None:
@@ -183,12 +187,41 @@ class BaseModelAdapter:
 
         return ModelHealth(
             key=self.spec.key,
+            model_key=self.spec.key,
             title=self.spec.title,
+            name=self.spec.title,
+            purpose=self.spec.purpose or self.spec.task,
+            dataset=self.spec.dataset,
             architecture=self.spec.architecture,
+            architecture_name=self.spec.architecture,
             task=self.spec.task,
             runtime=self.spec.runtime,
             status=status,
+            status_group=(
+                "READY" if status is ModelStatus.READY
+                else "BLOCKED" if status is ModelStatus.READY_FOR_TEST
+                else "TRAINING_REQUIRED" if status is ModelStatus.TRAINING_REQUIRED
+                else "BLOCKED" if status in {
+                    ModelStatus.ARTIFACT_PRESENT_BUT_PREPROCESSING_BLOCKED,
+                    ModelStatus.ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED,
+                }
+                else "INVALID" if status is ModelStatus.INVALID
+                else "ERROR" if status in {ModelStatus.ERROR, ModelStatus.UNSUPPORTED_RUNTIME}
+                else "MISSING_ARTIFACT"
+            ),
             model_dir=str(self.model_dir),
+            artifact=next(
+                (item.name for item in self.spec.artifacts if item.role in {"checkpoint", "classifier"}),
+                None,
+            ),
+            artifact_path=str(self.artifact_path(next(
+                (item.name for item in self.spec.artifacts if item.role in {"checkpoint", "classifier"}),
+                "",
+            ))),
+            live_inference_available=status is ModelStatus.READY and self._loaded,
+            version=self.model_version,
+            last_validation=self._last_validation,
+            benchmark_metrics=dict(self.spec.benchmark_metrics),
             loaded=self._loaded,
             load_time_ms=self._load_time_ms,
             device=self.device,
@@ -282,6 +315,8 @@ class BaseModelAdapter:
         warnings: list[str] | None = None,
         inference_ms: float | None = None,
     ) -> ModelResult:
+        if status == "success":
+            self._last_validation = dt.datetime.now(dt.timezone.utc)
         return ModelResult(
             model=self.spec.key,
             model_version=self.model_version,

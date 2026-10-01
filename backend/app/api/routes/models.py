@@ -6,6 +6,7 @@ load; it never returns a hardcoded status.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -28,13 +29,28 @@ def list_models(registry: ModelRegistry = Depends(registry_dependency)) -> dict[
     models = []
     for spec in registry.specs:
         adapter = registry.get(spec.key)
+        health = adapter.health(probe=False)
         models.append(
             {
                 "key": spec.key,
+                "model_key": spec.key,
                 "title": spec.title,
+                "name": spec.title,
+                "purpose": spec.purpose or spec.task,
+                "dataset": spec.dataset,
                 "architecture": spec.architecture,
+                "architecture_name": spec.architecture,
                 "task": spec.task,
                 "runtime": spec.runtime.value,
+                "artifact": next((artifact.name for artifact in spec.artifacts if artifact.role in {"checkpoint", "classifier"}), None),
+                "artifact_path": str(adapter.artifact_path(next((artifact.name for artifact in spec.artifacts if artifact.role in {"checkpoint", "classifier"}), ""))),
+                "version": adapter.model_version,
+                "benchmark_metrics": dict(spec.benchmark_metrics),
+                "status": health.status.value,
+                "status_group": health.status_group,
+                "loaded": health.loaded,
+                "live_inference_available": health.live_inference_available,
+                "readiness_reason": health.readiness_reason,
                 "model_dir": str(adapter.model_dir),
                 "notes": list(spec.notes),
                 "artifacts": [
@@ -113,9 +129,32 @@ def infer_with_registry(
     if missing:
         raise ModelArtifactMissingError(adapter.spec.key, missing)
 
+    request_payload = dict(payload or {})
+    if model_key == "building_extractor":
+        for key in ("image", "input", "data"):
+            if key in request_payload:
+                request_payload[key] = _decode_image_value(request_payload[key])
+    elif model_key == "change_detector":
+        for key in ("before_image", "before", "after_image", "after"):
+            if key in request_payload:
+                request_payload[key] = _decode_image_value(request_payload[key])
     try:
-        result = adapter.infer(payload or {})
+        result = adapter.infer(request_payload)
     except InvalidInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return result.model_dump(mode="json")
+
+
+def _decode_image_value(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    encoded = value.get("base64") or value.get("data")
+    if not isinstance(encoded, str):
+        return value
+    if encoded.startswith("data:") and "," in encoded:
+        encoded = encoded.split(",", 1)[1]
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise HTTPException(status_code=422, detail="image base64 payload is invalid") from exc

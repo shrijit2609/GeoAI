@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import time
 from typing import Any
 
@@ -55,7 +57,11 @@ class BuildingExtractor(BaseModelAdapter):
         else:
             state_dict = extract_state_dict(self.spec.key, checkpoint)
             self._num_classes = _infer_num_classes(self.spec.key, state_dict)
-            self._module = _build_deeplabv3(self.spec.key, self._num_classes)
+            self._module = _build_deeplabv3(
+                self.spec.key,
+                self._num_classes,
+                auxiliary="aux_classifier.4.weight" in state_dict,
+            )
             load_strict(self.spec.key, self._module, state_dict)
 
         self._module.to(self.device)
@@ -91,6 +97,10 @@ class BuildingExtractor(BaseModelAdapter):
             )
 
         polygons = polygonize_mask(binary, loaded.transform, loaded.crs)
+        mask_buffer = io.BytesIO()
+        from PIL import Image
+
+        Image.fromarray((binary * 255).astype(np.uint8)).save(mask_buffer, format="PNG")
 
         return self.build_result(
             confidence=None,
@@ -101,6 +111,7 @@ class BuildingExtractor(BaseModelAdapter):
                 "binary_threshold": threshold,
                 "building_pixel_percentage": building_pixel_percentage,
                 "mask_shape": list(binary.shape),
+                "mask_png_base64": base64.b64encode(mask_buffer.getvalue()).decode("ascii"),
                 "probability_mask_summary": _mask_summary(probability),
                 "mean_building_probability": float(probability.mean()),
                 "polygon_space": polygons["coordinate_space"],
@@ -129,14 +140,26 @@ class BuildingExtractor(BaseModelAdapter):
         return probability, (probability >= threshold).astype(np.uint8), loaded
 
 
-def _build_deeplabv3(model_key: str, num_classes: int):
+def _build_deeplabv3(
+    model_key: str, num_classes: int, auxiliary: bool = False
+):
     try:
         from torchvision.models.segmentation import deeplabv3_resnet50
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise ModelCompatibilityError(
             model_key, "torchvision is required for DeepLabV3-ResNet50"
         ) from exc
-    return deeplabv3_resnet50(weights=None, weights_backbone=None, num_classes=num_classes)
+    model = deeplabv3_resnet50(
+        weights=None,
+        weights_backbone=None,
+        num_classes=21 if auxiliary else num_classes,
+        aux_loss=auxiliary,
+    )
+    if auxiliary:
+        import torch
+
+        model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
+    return model
 
 
 def _infer_num_classes(model_key: str, state_dict: dict[str, Any]) -> int:

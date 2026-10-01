@@ -44,12 +44,15 @@ def install_artifacts(project_root: Path) -> list[Path]:
     for source_relative, target_relative in artifact_moves:
         source_path = project_root / source_relative
         target_path = project_root / target_relative
+        if not source_path.is_file() and target_path.is_file():
+            source_path = target_path
         if not source_path.is_file():
             raise FileNotFoundError(
                 f"Expected trained artifact was not produced: {source_path}"
             )
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, target_path)
+        if source_path.resolve() != target_path.resolve():
+            shutil.copy2(source_path, target_path)
         installed.append(target_path)
 
     preprocessing: dict[Path, dict[str, Any]] = {
@@ -71,7 +74,8 @@ def install_artifacts(project_root: Path) -> list[Path]:
     }
     for sidecar_path, descriptor in preprocessing.items():
         sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-        sidecar_path.write_text(json.dumps(descriptor, indent=2), encoding="utf-8")
+        if not sidecar_path.is_file():
+            sidecar_path.write_text(json.dumps(descriptor, indent=2), encoding="utf-8")
         installed.append(sidecar_path)
 
     return installed

@@ -183,6 +183,29 @@ def test_preprocessing_sidecar_is_used_when_present(
     assert registry.health("building_extractor").status is ModelStatus.READY
 
 
+def test_model2_loader_matches_notebook_pretrained_auxiliary_head(
+    registry: ModelRegistry, empty_model_root: Path
+):
+    from torchvision.models.segmentation import deeplabv3_resnet50
+
+    model = deeplabv3_resnet50(
+        weights=None, weights_backbone=None, num_classes=21, aux_loss=True
+    )
+    model.classifier[4] = torch.nn.Conv2d(256, 1, kernel_size=1)
+    directory = empty_model_root / "model2_building_extractor"
+    torch.save(
+        {"model_state_dict": model.state_dict(), "input_size": 256},
+        directory / "building_deeplabv3_resnet50_best.pt",
+    )
+    (directory / "building_preprocessing.json").write_text(
+        json.dumps({"input_size": [256, 256], "scale": 1 / 255, "mean": [0, 0, 0], "std": [1, 1, 1]})
+    )
+
+    adapter = registry.load("building_extractor")
+    assert adapter.is_loaded
+    assert adapter._module.aux_classifier is not None
+
+
 def test_architecture_mismatch_is_reported(registry: ModelRegistry, empty_model_root: Path):
     from torchvision.models.segmentation import deeplabv3_resnet50
 
@@ -232,7 +255,8 @@ def test_parcel_matcher_refuses_to_guess_the_architecture(
     assert "architecture" in str(excinfo.value)
 
     health = registry.health("parcel_matcher")
-    assert health.status is ModelStatus.ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED
+    assert health.status is ModelStatus.INVALID
+    assert health.status_group == "INVALID"
     assert health.error
 
 
