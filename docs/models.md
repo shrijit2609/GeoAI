@@ -9,7 +9,7 @@ ModelResult(model, model_version, status, confidence, decision,
 
 `confidence` is the model's own (optionally calibrated) score. It is never
 synthesised: if a model cannot run, the caller gets an error or a
-`missing_artifact` health entry rather than a number.
+health entry rather than a number.
 
 Adapters are lazy: the artifact is loaded on first use, cached in the registry,
 and placed on the device chosen by `SPATIALSHIFT_DEVICE` (`auto` picks CUDA when
@@ -21,9 +21,15 @@ available). PyTorch inference runs under `torch.inference_mode()`.
 | --- | --- |
 | `ready` | the artifact was loaded successfully in this process |
 | `ready_for_test` | all required files are present, load not yet attempted |
-| `missing_artifact` | at least one required file is absent under `MODEL_ROOT` |
-| `load_error` | the file exists but failed to load or is not usable as-is |
+| `artifact_present_but_preprocessing_blocked` | checkpoint exists, but required preprocessing is unavailable |
+| `artifact_present_but_inference_blocked` | artifact exists, but architecture/schema/inference contract is incompatible |
+| `training_required` | no trained artifact is installed and a reproducible notebook training pipeline exists |
+| `missing_artifact` | required file is absent and no training pipeline is declared |
+| `error` | an artifact exists but failed to load |
 | `unsupported_runtime` | the runtime (e.g. torch) needed for the artifact is unavailable |
+
+Every health response includes `readiness_reason` describing the concrete
+blocker or confirming that the artifact loaded successfully.
 
 ## Model 1 — parcel correspondence (Siamese CNN)
 
@@ -32,12 +38,11 @@ preprocessing sidecars.
 
 The recovered state dict confirms Conv1d kernel width 5 for all three layers,
 channel sizes `2→64→128→256`, and embedding weight shapes `256→128→64`. The
-project manifest documents 64 boundary points, input shape `[64, 2]`, adaptive
-max pooling, L2 normalization, and contrastive training. The adapter uses
-strict state-dict loading with those kernel dimensions. The checkpoint has no
-preprocessing descriptor, and the original feature construction and activation
-definitions were not recovered; inference therefore remains unavailable rather
-than guessing those details.
+adapter strictly loads the notebook-derived 64-point `[64, 2]` boundary input
+through adaptive max pooling and a 256-to-128-to-64 L2-normalized embedding.
+Polygon inputs use equidistant sampling on the largest exterior, centering, and
+maximum-radius scaling. Image inference still requires recorded preprocessing;
+without it, health reports `artifact_present_but_preprocessing_blocked`.
 
 ## Model 2 — building footprint extraction (DeepLabV3-ResNet50)
 
@@ -66,16 +71,18 @@ Required: `model4_entity_resolver_logistic.joblib`,
 `model4_feature_scaler.joblib`, `model4_feature_schema.json`. Optional:
 isotonic calibrator and threshold.
 
+The recovered schema declares 104 ordered features; classifier and scaler
+dimensions are checked against all 104 before inference. The recovered
+normalization, string-similarity, area, and cross-field feature logic is
+implemented in `backend/app/ml/record_features.py` and validated against the
+saved schema.
+
 Features are computed strictly from the saved schema — the adapter never
 invents a feature the model was not trained on, and an unknown comparator or an
-uninterpretable feature name is a compatibility error rather than a silent
-zero. The recovered 104-feature schema uses names such as
-`village__both_empty` but does not define their formulas. Its reference
-inference file does not construct the full model feature vector, so this bundle
-remains unavailable until that contract is recovered. The joblib bundle was
-serialized with scikit-learn 1.6.1 while the backend pins 1.5.2; validate
-compatibility with the training runtime before deployment. **Owner names are
-not used**: the training data contains none, so any
+an uninterpretable feature name is a compatibility error rather than a silent
+zero. The copied joblib artifacts loaded successfully under the backend's
+scikit-learn runtime. **Owner names are not used**: the training data contains
+none, so any
 `owner_name` supplied by a caller is ignored and a warning is returned.
 
 Evidence lists matched fields, conflicting fields and fields missing from one
@@ -96,9 +103,9 @@ drove the score.
 ## Reported Training Benchmarks
 
 These values describe the named training/evaluation sets only. They are not
-deployment accuracy for Indian cadastral records. Models 2, 3 and 5 have no
-trained inference artifacts in the recovered folder, and Model 4's bundle
-cannot currently pass this backend's feature-schema contract.
+deployment accuracy for Indian cadastral records. Models 2 and 3 still require
+training; their notebook pipelines now package trained checkpoints and exact
+preprocessing sidecars into the canonical model directories.
 
 | Model | Evaluation set | Reported metrics |
 | --- | --- | --- |
@@ -106,7 +113,7 @@ cannot currently pass this backend's feature-schema contract.
 | Model 2 | WHU Building Dataset | best validation IoU 0.8395; test IoU 0.842672; Dice/F1 0.914620; precision 0.923784; recall 0.905635 |
 | Model 3 | LEVIR-CD Cropped 256 | best validation IoU 0.5950; test IoU 0.5886685; Dice/F1 0.7410842; precision 0.7028147; recall 0.7837613 |
 | Model 4 | controlled 3,000-pair test split | accuracy 0.999667; precision 0.999334; recall 1.0; F1 0.999667; ROC-AUC 1.0; PR-AUC 1.0; Brier 0.000112; threshold 0.05 |
-| Model 5 | reported benchmark; local model artifact absent | accuracy 0.814167; precision 0.717017; recall 0.833333; F1 0.770812; ROC-AUC 0.907415; PR-AUC 0.823562; Brier 0.115786 |
+| Model 5 | reported benchmark; canonical inference artifacts present | accuracy 0.814167; precision 0.717017; recall 0.833333; F1 0.770812; ROC-AUC 0.907415; PR-AUC 0.823562; Brier 0.115786 |
 
 Model 4's positive pairs are controlled/corrupted variants, not independently
 adjudicated real-world duplicates. Model 5 outputs, when its artifact is

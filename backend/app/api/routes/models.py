@@ -96,6 +96,14 @@ def model_inference(
     payload: dict[str, Any] | None = Body(default=None),
     registry: ModelRegistry = Depends(registry_dependency),
 ) -> dict[str, Any]:
+    return infer_with_registry(model_key, payload, registry)
+
+
+def infer_with_registry(
+    model_key: str,
+    payload: dict[str, Any] | None,
+    registry: ModelRegistry,
+) -> dict[str, Any]:
     try:
         adapter = registry.get(model_key)
     except UnknownModelError as exc:

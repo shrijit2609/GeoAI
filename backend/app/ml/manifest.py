@@ -8,7 +8,7 @@ committed to Git.
 
 from __future__ import annotations
 
-from app.ml.common import ArtifactSpec, ModelRuntime, ModelSpec
+from app.ml.common import ArtifactSpec, ModelRuntime, ModelSpec, ModelStatus
 
 PARCEL_MATCHER = ModelSpec(
     key="parcel_matcher",
@@ -58,6 +58,11 @@ BUILDING_EXTRACTOR = ModelSpec(
         "preprocessing metadata is present or embedded in the checkpoint",
         "output head shape must be compatible with the model architecture",
     ),
+    missing_status=ModelStatus.TRAINING_REQUIRED,
+    missing_status_reason=(
+        "No trained checkpoint is installed. The one-cell Colab/T4 training pipeline "
+        "is in training/SpatialShiftAI.ipynb (cell 82)."
+    ),
     notes=(
         "Polygons are returned in pixel coordinates unless the source raster "
         "carries a CRS and geotransform.",
@@ -82,6 +87,11 @@ CHANGE_DETECTOR = ModelSpec(
         "checkpoint file exists and loads on the configured runtime",
         "paired imagery preprocessing matches the checkpoint contract",
         "decoder head dimensions match the saved weights",
+    ),
+    missing_status=ModelStatus.TRAINING_REQUIRED,
+    missing_status_reason=(
+        "No trained checkpoint is installed. The Colab/T4 training pipeline is in "
+        "training/SpatialShiftAI.ipynb (cell 102)."
     ),
     notes=("Both epochs must share the same CRS, geotransform and raster size.",),
 )
@@ -132,6 +142,11 @@ ANOMALY_DETECTOR = ModelSpec(
         "classifier and feature schema are present and parseable",
         "feature transformation metadata is valid if a scaler or calibrator is supplied",
         "result is a review signal only; the model is never treated as a fraud decision engine",
+    ),
+    missing_status=ModelStatus.TRAINING_REQUIRED,
+    missing_status_reason=(
+        "No trained artifacts are installed. The Model 5 training/export pipeline "
+        "is in training/SpatialShiftAI.ipynb (cell 122)."
     ),
     notes=(
         "Scope is attribute/identity/statistical anomalies in land records. The "

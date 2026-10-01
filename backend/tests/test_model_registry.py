@@ -33,10 +33,16 @@ def test_missing_artifacts_are_reported_not_faked(registry: ModelRegistry):
     report = registry.health_report()
     assert set(report) == {spec.key for spec in MODEL_SPECS}
     for health in report.values():
-        assert health.status is ModelStatus.MISSING_ARTIFACT
+        expected = (
+            ModelStatus.TRAINING_REQUIRED
+            if health.key in {"building_extractor", "change_detector", "anomaly_detector"}
+            else ModelStatus.MISSING_ARTIFACT
+        )
+        assert health.status is expected
         assert health.loaded is False
         assert health.missing_artifacts
         assert health.error is None
+        assert health.readiness_reason
 
 
 def test_loading_a_missing_model_raises(registry: ModelRegistry):
@@ -49,7 +55,8 @@ def test_summary_counts_statuses(registry: ModelRegistry):
     summary = registry.summary()
     assert summary["total"] == 5
     assert summary["ready"] == 0
-    assert summary["status_counts"]["missing_artifact"] == 5
+    assert summary["status_counts"]["missing_artifact"] == 2
+    assert summary["status_counts"]["training_required"] == 3
     assert summary["device"] == "cpu"
 
 
@@ -73,10 +80,13 @@ def test_corrupt_artifact_reports_load_error(
 ):
     directory = empty_model_root / "model5_anomaly_detection"
     (directory / "model5_anomaly_classifier.joblib").write_bytes(b"corrupt")
-    write_json(directory / "model5_feature_schema.json", {"features": ["area_value"]})
+    write_json(
+        directory / "model5_feature_schema.json",
+        {"features": [{"name": "area_value", "field": "area", "comparator": "value"}]},
+    )
 
     health = registry.health("anomaly_detector")
-    assert health.status is ModelStatus.LOAD_ERROR
+    assert health.status is ModelStatus.ERROR
     assert health.error
     assert health.loaded is False
 

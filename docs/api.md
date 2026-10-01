@@ -8,11 +8,11 @@ fabricating missing values or model outputs.
 
 ## Production model runtime
 
-The backend keeps all trained model artifacts external to Git by resolving them
-under `MODEL_ROOT`. The runtime contract is explicit and safe: missing artifacts
-return a structured missing-artifact response, a file path alone does not mark a
-model as ready, and the rest of the API stays operational when a model is
-unavailable.
+The backend resolves trained model artifacts under `MODEL_ROOT`. The runtime
+contract distinguishes ready models, reproducible training-required models,
+missing files, present-but-blocked artifacts, and load errors. A file path alone
+does not mark a model as ready, and the rest of the API stays operational when a
+model is unavailable.
 
 ### Inference endpoints
 
@@ -107,9 +107,12 @@ Query parameters:
 - `include_hash` (default `false`) — include the sha256 of present artifacts
 
 Returns per model: `status`, `loaded`, `device`, `load_time_ms`,
-`model_version`, `error` (the real exception text when loading failed),
-`missing_artifacts` and the artifact reports. With `probe=false` a model with
-all files present reports `ready_for_test` rather than `ready`.
+`model_version`, `readiness_reason`, `error` (the real exception text when
+loading failed), `missing_artifacts` and the artifact reports. Statuses
+distinguish `ready`, `training_required`, `missing_artifact`,
+`artifact_present_but_preprocessing_blocked`,
+`artifact_present_but_inference_blocked`, and `error`. With `probe=false` a
+model with all files present reports `ready_for_test` rather than `ready`.
 
 ## `GET /api/models/{model_key}/health`
 
@@ -119,8 +122,8 @@ The same payload for one model; `404` for an unknown key.
 
 The declared stages (parcel correspondence → building extraction → change
 detection → entity resolution → anomaly review) with, for each, whether it can
-run and — when it cannot — the concrete reason (missing artifact, load error,
-unsupported runtime). Stages that cannot run are reported as skipped, never
+run and — when it cannot — the concrete readiness reason. Stages that cannot
+run are reported as skipped, never
 simulated.
 
 ## Errors

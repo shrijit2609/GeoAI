@@ -118,7 +118,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--leaf); box-shado
 .model-card strong { font-size: 10px; }
 .model-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 5px; font: 9px var(--mono); text-transform: uppercase; }
 .model-status.ready { color: #216146; background: #e2f1e7; }
-.model-status.missing_artifact, .model-status.load_error { color: #91433b; background: #f7e9e7; }
+.model-status.missing_artifact, .model-status.error, .model-status.load_error,
+.model-status.artifact_present_but_preprocessing_blocked,
+.model-status.artifact_present_but_inference_blocked { color: #91433b; background: #f7e9e7; }
+.model-status.training_required { color: #875b21; background: #f9f0df; }
 .model-status.ready_for_test { color: #875b21; background: #f9f0df; }
 .model-error { color: #737d76; font-size: 9px; margin-top: 6px; overflow-wrap: anywhere; }
 .model-inference { display: grid; grid-template-columns: minmax(180px, .8fr) 2fr; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }

@@ -1,0 +1,11 @@
+{
+  "decision_threshold": 0.05,
+  "validation_f1": 1.0,
+  "validation_precision": 1.0,
+  "validation_recall": 1.0,
+  "policy": {
+    "MATCH": "probability >= threshold",
+    "REVIEW": "0.50 <= probability < threshold",
+    "NO_MATCH": "probability < 0.50"
+  }
+}

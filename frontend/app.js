@@ -76,10 +76,21 @@
       const report = await request("/api/models/readiness");
       const models = Object.values(report.models || {});
       byId("metric-models").textContent = `${report.ready}/${report.total} ready`;
+      const statusLabels = {
+        ready: "Ready",
+        ready_for_test: "Artifact present / probe pending",
+        artifact_present_but_preprocessing_blocked: "Artifact present / preprocessing blocked",
+        artifact_present_but_inference_blocked: "Artifact present / inference blocked",
+        training_required: "Training required",
+        missing_artifact: "Missing artifact",
+        error: "Error",
+        load_error: "Error",
+        unsupported_runtime: "Error",
+      };
       container.innerHTML = models.map((model) => `
         <article class="model-card">
-          <div class="model-card-head"><strong>${escapeHtml(model.key.replaceAll("_", " "))}</strong><span class="model-status ${escapeHtml(model.status)}">${escapeHtml(model.status.replaceAll("_", " "))}</span></div>
-          <div class="model-error">${escapeHtml(model.error || (model.missing_artifacts?.length ? `Missing: ${model.missing_artifacts.join(", ")}` : model.loaded ? "Loaded and probed" : "Available"))}</div>
+          <div class="model-card-head"><strong>${escapeHtml(model.key.replaceAll("_", " "))}</strong><span class="model-status ${escapeHtml(model.status)}">${escapeHtml(statusLabels[model.status] || model.status.replaceAll("_", " "))}</span></div>
+          <div class="model-error">${escapeHtml(model.readiness_reason || model.error || "Readiness reason unavailable.")}</div>
         </article>`).join("");
     } catch (error) {
       byId("metric-models").textContent = "Unavailable";

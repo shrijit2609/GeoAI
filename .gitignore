@@ -25,6 +25,19 @@ models/**/*.h5
 models/**/*.json
 models/**/*.yaml
 models/**/*.yml
+!models/model1_parcel_matcher/parcel_siamese_v2_best.pt
+!models/model4_entity_resolution/model4_entity_resolver_logistic.joblib
+!models/model4_entity_resolution/model4_feature_scaler.joblib
+!models/model4_entity_resolution/model4_feature_schema.json
+!models/model4_entity_resolution/model4_isotonic_calibrator.joblib
+!models/model4_entity_resolution/model4_threshold.json
+!models/model5_anomaly_detection/model5_anomaly_classifier.joblib
+!models/model5_anomaly_detection/model5_feature_scaler.joblib
+!models/model5_anomaly_detection/model5_feature_schema.json
+!models/model5_anomaly_detection/model5_inference_config.json
+!models/model5_anomaly_detection/model5_isolation_forest.joblib
+!models/model5_anomaly_detection/model5_isotonic_calibrator.joblib
+!models/model5_anomaly_detection/model5_threshold.json
 
 # Data
 data/raw/

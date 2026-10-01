@@ -207,6 +207,56 @@ def test_uninterpretable_feature_name_is_a_compatibility_error(
         registry.load("entity_resolver").resolve({}, {})
 
 
+def test_recovered_model4_artifacts_run_full_104_feature_pipeline():
+    model_root = Path(__file__).resolve().parents[2] / "models"
+    registry = ModelRegistry(model_root=model_root, device="cpu")
+    adapter = registry.get("entity_resolver")
+    health = registry.health("entity_resolver", probe=True)
+
+    assert health.status is ModelStatus.READY
+    assert health.loaded is True
+    assert adapter._classifier.n_features_in_ == 104
+    assert adapter._scaler.n_features_in_ == 104
+    assert adapter._calibrator is not None
+    assert adapter._threshold_source == "model4_threshold.json"
+
+    result = adapter.resolve(
+        {
+            "district": "Agra", "village": "Sultanpur", "khasra": "121/2",
+            "tehsil": "Sikandra", "block": "A", "pargana": "P", "area": 1000,
+        },
+        {
+            "district": "Agra", "village": "Sultanpur", "khasra": "121/2",
+            "tehsil": "Sikandra", "block": "A", "pargana": "P", "area": 1010,
+        },
+    )
+
+    assert result.status == "success"
+    assert result.confidence is not None
+    assert result.decision in ("match", "no_match")
+    assert len(result.evidence["features"]) == 104
+    assert result.evidence["threshold"] == adapter._threshold
+
+
+def test_existing_model5_artifacts_load_and_run_full_inference():
+    model_root = Path(__file__).resolve().parents[2] / "models"
+    registry = ModelRegistry(model_root=model_root, device="cpu")
+    health = registry.health("anomaly_detector", probe=True)
+    result = registry.get("anomaly_detector").predict(
+        {
+            "district": "Agra", "village": "Sultanpur", "khasra": "121/2",
+            "pargana": "P", "tehsil": "Sikandra", "block": "A", "area": 1000,
+        }
+    )
+
+    assert health.status is ModelStatus.READY
+    assert health.loaded is True
+    assert result.status == "success"
+    assert len(result.evidence["features"]) == 54
+    assert result.confidence is not None
+    assert result.decision in ("review_required", "no_review_required")
+
+
 # ----------------------------------------------------------------------
 def test_anomaly_detector_without_artifacts_raises(registry: ModelRegistry):
     with pytest.raises(ModelArtifactMissingError):

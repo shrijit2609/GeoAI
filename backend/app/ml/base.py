@@ -106,13 +106,13 @@ class BaseModelAdapter:
             self._load()
         except ModelCompatibilityError as exc:
             self._loaded = False
-            self._status = ModelStatus.LOAD_ERROR
+            self._status = self._compatibility_failure_status(exc)
             self._error = f"{type(exc).__name__}: {exc}"
             logger.warning("Model %s is not usable: %s", self.spec.key, exc)
             raise
         except Exception as exc:  # noqa: BLE001 - surfaced through health reporting
             self._loaded = False
-            self._status = ModelStatus.LOAD_ERROR
+            self._status = ModelStatus.ERROR
             self._error = f"{type(exc).__name__}: {exc}"
             logger.exception("Failed to load model %s", self.spec.key)
             raise ModelLoadError(self.spec.key, str(exc)) from exc
@@ -124,6 +124,13 @@ class BaseModelAdapter:
 
     def _load(self) -> None:  # pragma: no cover - implemented by subclasses
         raise NotImplementedError
+
+    def _compatibility_failure_status(
+        self, error: ModelCompatibilityError
+    ) -> ModelStatus:
+        if self.spec.key == "parcel_matcher" and "preprocessing" in str(error).lower():
+            return ModelStatus.ARTIFACT_PRESENT_BUT_PREPROCESSING_BLOCKED
+        return ModelStatus.ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED
 
     def unload(self) -> None:
         self._loaded = False
@@ -143,25 +150,36 @@ class BaseModelAdapter:
         missing = self.missing_required_artifacts()
         status = self._status
         error = self._error
+        readiness_reason: str | None = None
 
         if missing:
-            status = ModelStatus.MISSING_ARTIFACT
+            status = self.spec.missing_status
             error = None
+            readiness_reason = self.spec.missing_status_reason or (
+                f"Required artifacts are absent: {', '.join(missing)}."
+            )
         elif self._loaded:
             status = ModelStatus.READY
+            readiness_reason = "Artifacts loaded and the inference contract is available."
         elif probe:
             try:
                 self.load()
                 status = ModelStatus.READY
                 error = None
+                readiness_reason = "Artifacts loaded and the inference contract is available."
             except (ModelLoadError, ModelCompatibilityError) as exc:
-                status = ModelStatus.LOAD_ERROR
+                status = self._status
                 error = exc.reason
+                readiness_reason = exc.reason
             except ModelArtifactMissingError as exc:
-                status = ModelStatus.MISSING_ARTIFACT
+                status = self.spec.missing_status
                 missing = exc.missing
+                readiness_reason = self.spec.missing_status_reason or (
+                    f"Required artifacts are absent: {', '.join(missing)}."
+                )
         else:
             status = ModelStatus.READY_FOR_TEST
+            readiness_reason = "Required artifacts are present; runtime loading has not been probed."
 
         return ModelHealth(
             key=self.spec.key,
@@ -175,6 +193,7 @@ class BaseModelAdapter:
             load_time_ms=self._load_time_ms,
             device=self.device,
             error=error,
+            readiness_reason=readiness_reason,
             missing_artifacts=missing,
             artifacts=self.artifact_reports(include_hash=include_hash),
             notes=list(self.spec.notes),

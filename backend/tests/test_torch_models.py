@@ -100,7 +100,12 @@ def change_checkpoint(empty_model_root: Path) -> Path:
 def test_missing_checkpoints_are_not_faked(registry: ModelRegistry):
     for key in ("parcel_matcher", "building_extractor", "change_detector"):
         health = registry.health(key)
-        assert health.status is ModelStatus.MISSING_ARTIFACT
+        expected = (
+            ModelStatus.TRAINING_REQUIRED
+            if key in ("building_extractor", "change_detector")
+            else ModelStatus.MISSING_ARTIFACT
+        )
+        assert health.status is expected
         assert health.loaded is False
 
     with pytest.raises(ModelArtifactMissingError):
@@ -227,7 +232,7 @@ def test_parcel_matcher_refuses_to_guess_the_architecture(
     assert "architecture" in str(excinfo.value)
 
     health = registry.health("parcel_matcher")
-    assert health.status is ModelStatus.LOAD_ERROR
+    assert health.status is ModelStatus.ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED
     assert health.error
 
 
@@ -244,3 +249,21 @@ def test_parcel_matcher_runs_when_the_module_is_saved(
     assert result.decision in ("match", "no_match")
     assert result.evidence["embedding_distance"] is not None
     assert any("threshold" in warning for warning in result.warnings)
+
+
+def test_recovered_parcel_checkpoint_loads_and_runs_notebook_preprocessing():
+    from shapely.geometry import Polygon
+
+    model_root = Path(__file__).resolve().parents[2] / "models"
+    registry = ModelRegistry(model_root=model_root, device="cpu")
+    health = registry.health("parcel_matcher", probe=True)
+    result = registry.get("parcel_matcher").predict(
+        Polygon([(0, 0), (10, 0), (10, 8), (0, 8)]),
+        Polygon([(0, 0), (10, 0), (10, 8), (0, 8)]),
+    )
+
+    assert health.status is ModelStatus.READY
+    assert health.loaded is True
+    assert result.status == "success"
+    assert result.evidence["preprocessing"]["boundary_points"] == 64
+    assert result.evidence["embedding_distance"] is not None

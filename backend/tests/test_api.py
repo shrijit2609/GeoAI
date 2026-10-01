@@ -37,7 +37,10 @@ def test_models_health_reports_missing_artifacts(api_client):
     payload = api_client.get("/api/models/health").json()
     assert payload["ready"] == 0
     for key, health in payload["models"].items():
-        assert health["status"] == "missing_artifact", key
+        expected = "training_required" if key in {
+            "building_extractor", "change_detector", "anomaly_detector"
+        } else "missing_artifact"
+        assert health["status"] == expected, key
         assert health["missing_artifacts"]
 
 
@@ -102,3 +105,15 @@ def test_compatibility_routes_expose_source_and_model_endpoints(api_client):
     readiness = api_client.get("/api/models/readiness").json()
     assert readiness["total"] == 5
     assert readiness["ready"] == 0
+    assert readiness["models"]["building_extractor"]["status"] == "training_required"
+    assert readiness["models"]["building_extractor"]["readiness_reason"]
+
+
+def test_model_inference_compatibility_routes_use_the_registry(api_client):
+    for path, payload in (
+        ("/api/entity-resolution/infer", {"record_a": {}, "record_b": {}}),
+        ("/api/anomaly/infer", {"record": {}}),
+    ):
+        response = api_client.post(path, json=payload)
+        assert response.status_code == 503
+        assert response.json()["error"] == "missing_artifact"

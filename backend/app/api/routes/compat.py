@@ -16,7 +16,7 @@ from app.api.routes.data import (
     upload_data,
 )
 from app.api.routes.harmonize import HarmonizeRequest, create_harmonization, get_harmonization
-from app.api.routes.models import model_inference, models_health
+from app.api.routes.models import infer_with_registry, model_inference, models_health
 from app.api.routes.ulpin import lookup_ulpin
 from app.ml.model_registry import get_registry
 from app.services.source_catalog import source_catalog
@@ -146,7 +146,7 @@ def harmonization_results_compat(job_id: str) -> dict[str, Any]:
 
 @router.get("/models/readiness")
 def readiness_compat() -> dict[str, Any]:
-    summary = get_registry().summary(probe=False)
+    summary = get_registry().summary(probe=True)
     summary["models"] = {
         key: health.model_dump(mode="json") for key, health in summary["models"].items()
     }
@@ -155,12 +155,12 @@ def readiness_compat() -> dict[str, Any]:
 
 @router.post("/entity-resolution/infer")
 def entity_resolution_compat(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
-    return model_inference("entity_resolver", payload)
+    return infer_with_registry("entity_resolver", payload, get_registry())
 
 
 @router.post("/anomaly/infer")
 def anomaly_infer_compat(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
-    return model_inference("anomaly_detector", payload)
+    return infer_with_registry("anomaly_detector", payload, get_registry())
 
 
 @router.post("/ulpin/lookup")

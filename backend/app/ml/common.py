@@ -22,8 +22,14 @@ class ModelStatus(str, Enum):
 
     READY = "ready"
     READY_FOR_TEST = "ready_for_test"
+    ARTIFACT_PRESENT_BUT_PREPROCESSING_BLOCKED = (
+        "artifact_present_but_preprocessing_blocked"
+    )
+    ARTIFACT_PRESENT_BUT_INFERENCE_BLOCKED = "artifact_present_but_inference_blocked"
+    TRAINING_REQUIRED = "training_required"
     MISSING_ARTIFACT = "missing_artifact"
-    LOAD_ERROR = "load_error"
+    ERROR = "error"
+    LOAD_ERROR = "error"
     UNSUPPORTED_RUNTIME = "unsupported_runtime"
 
 
@@ -60,6 +66,8 @@ class ModelSpec:
     artifacts: tuple[ArtifactSpec, ...]
     notes: tuple[str, ...] = field(default_factory=tuple)
     readiness_requirements: tuple[str, ...] = field(default_factory=tuple)
+    missing_status: ModelStatus = ModelStatus.MISSING_ARTIFACT
+    missing_status_reason: str | None = None
 
     def model_dir(self, model_root: Path) -> Path:
         return model_root / self.directory
@@ -96,6 +104,7 @@ class ModelHealth(BaseModel):
     load_time_ms: float | None = None
     device: str | None = None
     error: str | None = None
+    readiness_reason: str | None = None
     missing_artifacts: list[str] = Field(default_factory=list)
     artifacts: list[ArtifactReport] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

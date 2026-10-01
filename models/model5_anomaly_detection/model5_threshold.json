@@ -1,0 +1,10 @@
+{
+  "threshold": 0.38999999999999996,
+  "validation_precision": 0.725417439703154,
+  "validation_recall": 0.8688888888888889,
+  "validation_f1": 0.7906976744186046,
+  "decision_policy": {
+    "NORMAL": "score < 0.3900",
+    "REVIEW": "score >= 0.3900"
+  }
+}
