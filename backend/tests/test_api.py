@@ -81,3 +81,24 @@ def test_predict_alias_uses_the_same_missing_artifact_contract(api_client):
     payload = response.json()
     assert payload["error"] == "missing_artifact"
     assert payload["model"] == "parcel_matcher"
+
+
+def test_dashboard_summary_returns_zeroed_metrics_for_empty_catalog(api_client):
+    payload = api_client.get("/api/dashboard/summary").json()
+    assert payload["registered_sources"] == 0
+    assert payload["total_features"] == 0
+    assert payload["harmonized_parcels"] == 0
+    assert payload["conflicts"] == 0
+    assert payload["anomalies"] == 0
+    assert payload["processing_jobs"] == 0
+    assert payload["models_ready"] == 0
+
+
+def test_compatibility_routes_expose_source_and_model_endpoints(api_client):
+    sources = api_client.get("/api/sources").json()
+    assert sources["count"] == 0
+    layers = api_client.get("/api/map/layers").json()
+    assert layers["layers"] == []
+    readiness = api_client.get("/api/models/readiness").json()
+    assert readiness["total"] == 5
+    assert readiness["ready"] == 0

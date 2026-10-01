@@ -56,6 +56,19 @@
     }
   }
 
+  async function loadDashboardSummary() {
+    try {
+      const summary = await request("/api/dashboard/summary");
+      byId("metric-sources").textContent = String(summary.registered_sources ?? 0);
+      byId("metric-features").textContent = String(summary.total_features ?? 0);
+      byId("metric-models").textContent = `${summary.models_ready ?? 0}/${summary.model_health?.total ?? 0} ready`;
+      return summary;
+    } catch (error) {
+      console.warn("Dashboard summary unavailable:", error.message);
+      return null;
+    }
+  }
+
   async function loadModels() {
     const container = byId("model-list");
     container.innerHTML = '<div class="empty-state">Probing configured artifacts…</div>';
@@ -149,7 +162,7 @@
   });
   byId("connect-btn").addEventListener("click", async () => {
     state.api = byId("api-url").value.trim().replace(/\/$/, "");
-    await Promise.all([checkHealth(), loadModels(), refreshSources()]);
+    await Promise.all([checkHealth(), loadDashboardSummary(), loadModels(), refreshSources()]);
   });
   byId("refresh-sources").addEventListener("click", refreshSources);
   byId("refresh-models").addEventListener("click", loadModels);
@@ -250,5 +263,5 @@
   initializeMap();
   state.api = window.location.origin;
   byId("api-url").value = state.api;
-  Promise.all([checkHealth(), loadModels(), refreshSources()]);
+  Promise.all([checkHealth(), loadDashboardSummary(), loadModels(), refreshSources()]);
 })();

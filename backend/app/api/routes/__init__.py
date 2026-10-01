@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import data, harmonize, health, models, ulpin, upload
+from app.api.routes import compat, data, harmonize, health, models, ulpin, upload
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -12,5 +12,6 @@ api_router.include_router(data.router)
 api_router.include_router(data.layers_router)
 api_router.include_router(harmonize.router)
 api_router.include_router(ulpin.router)
+api_router.include_router(compat.router)
 
 __all__ = ["api_router"]
