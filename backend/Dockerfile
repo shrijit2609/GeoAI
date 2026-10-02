@@ -3,7 +3,7 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    MODEL_ROOT=/models
+    MODEL_ROOT=/var/data/models
 
 # GDAL/PROJ/GEOS runtime for rasterio, fiona, pyproj and shapely wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,6 +21,7 @@ COPY backend/app ./app
 COPY backend/pytest.ini ./pytest.ini
 COPY backend/tests ./tests
 COPY frontend /frontend
+COPY models /var/data/models
 ENV SPATIALSHIFT_FRONTEND_ROOT=/frontend
 
 EXPOSE 8000
