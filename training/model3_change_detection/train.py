@@ -246,6 +246,7 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
             optimizer.zero_grad(set_to_none=True)
             loss = combined_loss(model(before, after), target)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             running_loss += loss.item() * len(before)
         train_loss = running_loss / max(len(train_loader.dataset), 1)
