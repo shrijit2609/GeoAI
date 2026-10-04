@@ -202,7 +202,7 @@ def evaluate_metrics(model: nn.Module, loader: DataLoader, device: torch.device)
     }
 
 
-def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
+def train(dataset_dir: Path, project_root: Path, resume: bool = False) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("This training job is intended for Google Colab with a CUDA/T4 runtime. No CPU fallback training is started.")
     seed_everything(42)
@@ -220,10 +220,22 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
     model = build_model(pretrained=True).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2)
+
     history: list[dict[str, float]] = []
     best_validation_loss = float("inf")
+    start_epoch = 0
+    if resume and best_path.is_file():
+        saved = torch.load(best_path, map_location=device, weights_only=False)
+        model.load_state_dict(saved["model_state_dict"])
+        if "optimizer_state_dict" in saved:
+            optimizer.load_state_dict(saved["optimizer_state_dict"])
+        best_validation_loss = float(saved.get("val_loss", best_validation_loss))
+        start_epoch = int(saved.get("epoch", 0))
+        if history_path.is_file():
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+        print(f"Resuming from epoch {start_epoch + 1} (best_val_loss={best_validation_loss:.5f})")
 
-    for epoch in range(EPOCHS):
+    for epoch in range(start_epoch, EPOCHS):
         model.train()
         started = time.time()
         total = 0.0
@@ -260,22 +272,141 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
     return metrics
 
 
+def download_dataset(dataset_dir: Path, attempts: int = 3) -> Path:
+    """Download the WHU mirror, retrying transient Hugging Face failures.
+
+    The previous Colab run died here: a single ``snapshot_download`` call over a
+    multi-gigabyte repository aborts the whole job on any transient network or
+    CDN error. ``snapshot_download`` is resumable, so retrying is safe and a
+    partially downloaded mirror is completed rather than restarted.
+    """
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:  # pragma: no cover - dependency is declared
+        raise SystemExit(
+            "huggingface_hub is required for --download. "
+            "Install it with: pip install huggingface_hub"
+        ) from exc
+
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            print(f"Downloading WHU mirror (attempt {attempt}/{attempts}) -> {dataset_dir}")
+            snapshot_download(
+                repo_id="giswqs/WHU-Building-Dataset",
+                repo_type="dataset",
+                local_dir=str(dataset_dir),
+                max_workers=4,
+            )
+            break
+        except Exception as exc:  # noqa: BLE001 - retried below
+            last_error = exc
+            print(f"  download attempt {attempt} failed: {exc}")
+            if attempt == attempts:
+                raise SystemExit(
+                    f"WHU download failed after {attempts} attempts: {exc}"
+                ) from exc
+    verify_dataset(dataset_dir)
+    return dataset_dir
+
+
+def verify_dataset(dataset_dir: Path) -> None:
+    """Fail loudly and early when the mirror is incomplete or unpaired."""
+
+    if not dataset_dir.is_dir():
+        raise SystemExit(f"Dataset directory does not exist: {dataset_dir}")
+    rasters = [
+        path
+        for path in dataset_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+    if not rasters:
+        raise SystemExit(
+            f"No image/mask rasters were found under {dataset_dir}. The download did "
+            "not complete; re-run with --download to resume it."
+        )
+    train_df, val_df, test_df = discover_pairs(dataset_dir)
+    print(
+        "Dataset verified: "
+        f"train={len(train_df)} val={len(val_df)} test={len(test_df)} "
+        f"(total {len(rasters)} rasters)"
+    )
+
+
+def preflight(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
+    """GPU sanity check: dataset, one batch, forward, loss, backward, optimizer."""
+
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            "CUDA is unavailable. Select a Google Colab Tesla T4 runtime first."
+        )
+    device = torch.device("cuda")
+    seed_everything(42)
+    verify_dataset(dataset_dir)
+    train_df, val_df, test_df = discover_pairs(dataset_dir)
+    loader = DataLoader(
+        BuildingDataset(train_df, True), batch_size=TRAIN_BATCH, shuffle=True, num_workers=2
+    )
+    images, masks = next(iter(loader))
+    images, masks = images.to(device), masks.to(device)
+    print(f"batch ok: images={tuple(images.shape)} masks={tuple(masks.shape)}")
+
+    model = build_model(pretrained=True).to(device)
+    model.train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer.zero_grad(set_to_none=True)
+    output = model(images)
+    logits = output["out"] if isinstance(output, dict) else output
+    if logits.shape[1] != 1:
+        raise SystemExit(f"expected a one-channel building head, got {tuple(logits.shape)}")
+    loss = combined_loss(logits, masks)
+    loss.backward()
+    optimizer.step()
+    if not torch.isfinite(loss):
+        raise SystemExit(f"preflight loss is not finite: {loss.item()}")
+    print(f"forward/backward/optimizer ok: loss={loss.item():.6f} on {torch.cuda.get_device_name(0)}")
+    del model, optimizer
+    torch.cuda.empty_cache()
+    return {
+        "device": torch.cuda.get_device_name(0),
+        "train_samples": len(train_df),
+        "val_samples": len(val_df),
+        "test_samples": len(test_df),
+        "batch_images": list(images.shape),
+        "batch_masks": list(masks.shape),
+        "loss": float(loss.item()),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-dir", type=Path, help="Local extracted WHU aerial image/mask mirror")
     parser.add_argument("--project-root", type=Path, default=Path("/content/drive/MyDrive/SpatialShiftAI"))
     parser.add_argument("--download", action="store_true", help="Download giswqs/WHU-Building-Dataset into the project raw-data area")
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Run the GPU sanity check (dataset, batch, forward, loss, backward, optimizer) and exit",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue from an existing best checkpoint and training history",
+    )
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is unavailable. Select a Google Colab Tesla T4 runtime before downloading data or training.")
     dataset_dir = args.dataset_dir
     if args.download:
-        from huggingface_hub import snapshot_download
-        dataset_dir = args.project_root / "data/raw/whu_building_hf"
-        snapshot_download(repo_id="giswqs/WHU-Building-Dataset", repo_type="dataset", local_dir=str(dataset_dir))
+        dataset_dir = download_dataset(args.project_root / "data/raw/whu_building_hf")
     if dataset_dir is None:
         raise SystemExit("Pass --dataset-dir or --download. Dataset files are not included in this repository.")
-    metrics = train(dataset_dir, args.project_root)
+    if args.preflight:
+        print(json.dumps(preflight(dataset_dir, args.project_root), indent=2))
+        return
+    metrics = train(dataset_dir, args.project_root, resume=args.resume)
     print(json.dumps(metrics, indent=2))
 
 

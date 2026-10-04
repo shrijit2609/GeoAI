@@ -57,10 +57,12 @@ class BuildingExtractor(BaseModelAdapter):
         else:
             state_dict = extract_state_dict(self.spec.key, checkpoint)
             self._num_classes = _infer_num_classes(self.spec.key, state_dict)
+            auxiliary_classes = _infer_auxiliary_classes(state_dict)
             self._module = _build_deeplabv3(
                 self.spec.key,
                 self._num_classes,
-                auxiliary="aux_classifier.4.weight" in state_dict,
+                auxiliary=auxiliary_classes is not None,
+                auxiliary_classes=auxiliary_classes,
             )
             load_strict(self.spec.key, self._module, state_dict)
 
@@ -141,7 +143,10 @@ class BuildingExtractor(BaseModelAdapter):
 
 
 def _build_deeplabv3(
-    model_key: str, num_classes: int, auxiliary: bool = False
+    model_key: str,
+    num_classes: int,
+    auxiliary: bool = False,
+    auxiliary_classes: int | None = None,
 ):
     try:
         from torchvision.models.segmentation import deeplabv3_resnet50
@@ -152,14 +157,32 @@ def _build_deeplabv3(
     model = deeplabv3_resnet50(
         weights=None,
         weights_backbone=None,
-        num_classes=21 if auxiliary else num_classes,
+        num_classes=num_classes,
         aux_loss=auxiliary,
     )
     if auxiliary:
         import torch
 
         model.classifier[4] = torch.nn.Conv2d(256, num_classes, kernel_size=1)
+        model.aux_classifier[4] = torch.nn.Conv2d(
+            256, auxiliary_classes or num_classes, kernel_size=1
+        )
     return model
+
+
+def _infer_auxiliary_classes(state_dict: dict[str, Any]) -> int | None:
+    """Channels of the auxiliary classifier head, or ``None`` if absent.
+
+    The training notebook replaces ``aux_classifier[-1]`` with the same number
+    of output channels as the main head, so the auxiliary head cannot be
+    assumed to keep torchvision's default 21 channels.
+    """
+
+    for key in ("aux_classifier.4.weight", "aux_classifier.4.bias"):
+        tensor = state_dict.get(key)
+        if tensor is not None and hasattr(tensor, "shape"):
+            return int(tensor.shape[0])
+    return None
 
 
 def _infer_num_classes(model_key: str, state_dict: dict[str, Any]) -> int:

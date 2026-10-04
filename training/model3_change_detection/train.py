@@ -231,6 +231,8 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
     model_dir.mkdir(parents=True, exist_ok=True)
     best_path = model_dir / "siamese_resnet18_change_best.pt"
     final_path = model_dir / "siamese_resnet18_change_final.pt"
+    resume_path = model_dir / "siamese_resnet18_change_latest.pt"
+    history_path = model_dir / "training_history.json"
     model = SiameseChangeNet(pretrained=True).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=1)
@@ -258,6 +260,12 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
         if validation["iou"] > best_iou:
             best_iou = validation["iou"]
             torch.save({"model_state_dict": model.state_dict(), "architecture": "Siamese ResNet18", "epoch": epoch, "val_metrics": validation, "seed": 42}, best_path)
+        # Persist history and a resumable checkpoint after every epoch so an
+        # interrupted Colab session never loses completed work. The resumable
+        # file is separate from best_path, so a worse epoch can never overwrite
+        # the best checkpoint.
+        history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+        torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "epoch": epoch, "best_iou": best_iou, "architecture": "Siamese ResNet18", "seed": 42}, resume_path)
 
     checkpoint = torch.load(best_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -273,21 +281,119 @@ def train(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
     return result
 
 
+def download_dataset(dataset_dir: Path, attempts: int = 3) -> Path:
+    """Download the LEVIR parquet mirror, retrying transient Hugging Face errors.
+
+    A single un-retried ``snapshot_download`` over a multi-hundred-megabyte
+    repository was the failure mode that killed the earlier run. The download is
+    resumable, so a retry completes a partial transfer instead of restarting it.
+    """
+
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError as exc:  # pragma: no cover - dependency is declared
+        raise SystemExit(
+            "huggingface_hub is required for --download. "
+            "Install it with: pip install huggingface_hub"
+        ) from exc
+
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    for attempt in range(1, attempts + 1):
+        try:
+            print(f"Downloading LEVIR mirror (attempt {attempt}/{attempts}) -> {dataset_dir}")
+            snapshot_download(
+                repo_id="ericyu/LEVIRCD_Cropped_256",
+                repo_type="dataset",
+                local_dir=str(dataset_dir),
+                max_workers=4,
+            )
+            break
+        except Exception as exc:  # noqa: BLE001 - retried below
+            print(f"  download attempt {attempt} failed: {exc}")
+            if attempt == attempts:
+                raise SystemExit(
+                    f"LEVIR download failed after {attempts} attempts: {exc}"
+                ) from exc
+    verify_dataset(dataset_dir)
+    return dataset_dir
+
+
+def verify_dataset(dataset_dir: Path) -> None:
+    """Fail early when the parquet mirror is missing or incomplete."""
+
+    if not (dataset_dir / "data").is_dir():
+        raise SystemExit(f"LEVIR parquet directory is missing: {dataset_dir / 'data'}")
+    train_rows, val_rows, test_rows = load_splits(dataset_dir)
+    print(
+        f"Dataset verified: train={len(train_rows)} val={len(val_rows)} test={len(test_rows)}"
+    )
+
+
+def preflight(dataset_dir: Path, project_root: Path) -> dict[str, Any]:
+    """GPU sanity check: dataset, one batch, forward, loss, backward, optimizer."""
+
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            "CUDA is unavailable. Select a Google Colab Tesla T4 runtime first."
+        )
+    device = torch.device("cuda")
+    seed_everything(42)
+    verify_dataset(dataset_dir)
+    train_rows, _val_rows, _test_rows = load_splits(dataset_dir)
+    loader = DataLoader(
+        ChangeDataset(train_rows, augment=True), batch_size=4, shuffle=True, num_workers=2
+    )
+    before, after, mask = next(iter(loader))
+    before, after, mask = before.to(device), after.to(device), mask.to(device)
+    print(f"batch ok: before={tuple(before.shape)} after={tuple(after.shape)} mask={tuple(mask.shape)}")
+
+    model = SiameseChangeNet(pretrained=True).to(device)
+    model.train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer.zero_grad(set_to_none=True)
+    logits = model(before, after)
+    if logits.shape[1] != 1:
+        raise SystemExit(f"expected a one-channel change head, got {tuple(logits.shape)}")
+    loss = combined_loss(logits, mask)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    optimizer.step()
+    if not torch.isfinite(loss):
+        raise SystemExit(f"preflight loss is not finite: {loss.item()}")
+    print(f"forward/backward/optimizer ok: loss={loss.item():.6f} on {torch.cuda.get_device_name(0)}")
+    del model, optimizer
+    torch.cuda.empty_cache()
+    return {
+        "device": torch.cuda.get_device_name(0),
+        "train_samples": len(train_rows),
+        "batch_before": list(before.shape),
+        "batch_after": list(after.shape),
+        "batch_mask": list(mask.shape),
+        "loss": float(loss.item()),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-dir", type=Path)
     parser.add_argument("--project-root", type=Path, default=Path("/content/drive/MyDrive/SpatialShiftAI"))
     parser.add_argument("--download", action="store_true")
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Run the GPU sanity check (dataset, batch, forward, loss, backward, optimizer) and exit",
+    )
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise SystemExit("CUDA is unavailable. Select a Google Colab Tesla T4 runtime before downloading data or training.")
     dataset_dir = args.dataset_dir
     if args.download:
-        from huggingface_hub import snapshot_download
-        dataset_dir = args.project_root / "data/raw/levir_cd"
-        snapshot_download(repo_id="ericyu/LEVIRCD_Cropped_256", repo_type="dataset", local_dir=str(dataset_dir))
+        dataset_dir = download_dataset(args.project_root / "data/raw/levir_cd")
     if dataset_dir is None:
         raise SystemExit("Pass --dataset-dir or --download. LEVIR-CD data is not included in the repository.")
+    if args.preflight:
+        print(json.dumps(preflight(dataset_dir, args.project_root), indent=2))
+        return
     print(json.dumps(train(dataset_dir, args.project_root), indent=2))
 
 
