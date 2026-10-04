@@ -131,8 +131,14 @@ class BuildingDataset(Dataset):
         import cv2
 
         row = self.df.iloc[index]
-        image = cv2.resize(self.read_image(row.image), (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
-        mask = cv2.resize(self.read_mask(row.mask), (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_NEAREST)
+        # Use bracket access, never attribute access: self.df has a column named
+        # "mask" and pandas.Series defines a built-in .mask() method, so
+        # row.mask resolves to the bound method instead of the column and
+        # Path(row.mask) raises TypeError inside the DataLoader worker.
+        image_path = row["image"]
+        mask_path = row["mask"]
+        image = cv2.resize(self.read_image(image_path), (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_LINEAR)
+        mask = cv2.resize(self.read_mask(mask_path), (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_NEAREST)
         if self.training:
             if random.random() < 0.5:
                 image, mask = np.fliplr(image).copy(), np.fliplr(mask).copy()
